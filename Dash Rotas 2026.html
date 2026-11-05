@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Logístico Avançado | B&Q Metropolitana</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0a0f1d',
+                        cardbg: '#111827',
+                        neonGreen: '#10b981',
+                        neonBlue: '#3b82f6',
+                        accentDark: '#1f2937'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- SheetJS para ler Excel -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        #map { height: 500px; width: 100%; border-radius: 0.75rem; background-color: #1f2937; }
+        .custom-popup .leaflet-popup-content-wrapper {
+            background: #111827;
+            color: #f3f4f6;
+            border: 1px solid #10b981;
+            border-radius: 0.5rem;
+        }
+        .custom-popup .leaflet-popup-tip {
+            background: #10b981;
+        }
+        .selected-row {
+            background-color: rgba(16, 185, 129, 0.15) !important;
+            border-left: 4px solid #10b981;
+        }
+    </style>
+</head>
+<body class="bg-darkbg text-gray-100 min-h-screen font-sans antialiased">
+
+    <!-- Header -->
+    <header class="bg-cardbg border-b border-gray-800 p-4 shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-neonGreen/10 border border-neonGreen p-2 rounded-lg text-neonGreen font-bold text-xl">B&Q</div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-wide text-white">SOC MULTISKILL | Despacho e Roteirização Inteligente</h1>
+                    <p class="text-xs text-gray-400">Auditoria Operacional, Gestão de Frotas e Otimização de Rotas por IA</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <label class="cursor-pointer bg-neonGreen hover:bg-emerald-600 text-gray-950 font-semibold px-4 py-2 rounded-lg transition duration-200 shadow-md flex items-center gap-2 text-sm">
+                    📂 Importar Arquivo TDC (.xlsx)
+                    <input type="file" id="excelFile" accept=".xlsx, .xls" class="hidden" onchange="handleFile(event)">
+                </label>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
+
+        <!-- Controls Panel -->
+        <div class="bg-cardbg border border-gray-800 p-4 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+                <label class="block text-xs font-medium text-gray-400 mb-1">Ponto de Partida (Base Operacional)</label>
+                <select id="originSelect" class="w-full bg-darkbg border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:border-neonGreen focus:ring-1 focus:ring-neonGreen" onchange="processRoutingAndFilter()">
+                    <option value="EUSEBIO|-3.891779|-38.4715828">EUSÉBIO (-3.891779, -38.4715828)</option>
+                    <option value="CASCAVEL|-4.1136053|-38.2764708">CASCAVEL (-4.1136053, -38.2764708)</option>
+                    <option value="CAUCAIA|-3.7444476|-38.6202713">CAUCAIA (-3.7444476, -38.6202713)</option>
+                    <option value="MARACANAU|-3.8710537|-38.5940611">MARACANAÚ (-3.8710537, -38.5940611)</option>
+                    <option value="HORIZONTE|-4.099174|-38.5026834">HORIZONTE (-4.099174, -38.5026834)</option>
+                    <option value="BATURITE|-4.3636497|-38.8421941">BATURITÉ (-4.3636497, -38.8421941)</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-400 mb-1">Filtrar por Código Equipe</label>
+                <select id="teamSelect" class="w-full bg-darkbg border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:border-neonGreen focus:ring-1 focus:ring-neonGreen" onchange="processRoutingAndFilter()">
+                    <option value="">Selecione uma Equipe...</option>
+                </select>
+            </div>
+            <div>
+                <button onclick="processRoutingAndFilter()" class="w-full bg-neonBlue hover:bg-blue-600 text-white font-semibold py-2.5 px-4 rounded-lg transition duration-200 shadow-md text-sm">
+                    ⚡ Processar Rota Inteligente
+                </button>
+            </div>
+        </div>
+
+        <!-- AI Logistics Insights Box -->
+        <div id="aiInsights" class="bg-gradient-to-r from-gray-900 to-gray-800 border-l-4 border-neonGreen p-4 rounded-xl shadow-lg hidden">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-neonGreen font-bold text-sm">🤖 AI Logistics Advisor & Insights</span>
+                <span class="text-xs bg-neonGreen/20 text-neonGreen px-2 py-0.5 rounded">Ativo</span>
+            </div>
+            <div id="aiInsightsContent" class="text-sm text-gray-300 space-y-1">
+                <!-- Gerado dinamicamente -->
+            </div>
+        </div>
+
+        <!-- Map & Stats Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 bg-cardbg border border-gray-800 p-4 rounded-xl shadow-md">
+                <div class="flex justify-between items-center mb-3">
+                    <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">🗺️ Mapa de Roteirização e Percurso Real</h2>
+                    <span id="mapCounter" class="text-xs text-gray-400">0 pontos plotados</span>
+                </div>
+                <div id="map"></div>
+            </div>
+            <div class="bg-cardbg border border-gray-800 p-4 rounded-xl shadow-md flex flex-col justify-between space-y-4">
+                <div>
+                    <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-3">📊 Resumo da Operação</h2>
+                    <div class="space-y-3 text-sm">
+                        <div class="bg-darkbg p-3 rounded-lg border border-gray-800 flex justify-between">
+                            <span class="text-gray-400">Total de Ordens na Rota:</span>
+                            <span id="statTotal" class="font-bold text-neonGreen">0</span>
+                        </div>
+                        <div class="bg-darkbg p-3 rounded-lg border border-gray-800 flex justify-between">
+                            <span class="text-gray-400">Distância Real Estimada:</span>
+                            <span id="statDist" class="font-bold text-neonBlue">0.0 km</span>
+                        </div>
+                        <div class="bg-darkbg p-3 rounded-lg border border-gray-800 flex justify-between">
+                            <span class="text-gray-400">Status Filtrados:</span>
+                            <span class="text-xs text-gray-300">Enviado, Em execução, Designado</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-darkbg p-3 rounded-lg border border-gray-800 text-xs text-gray-400">
+                    💡 <b>Dica</b>: As linhas no mapa mostram o trajeto encadeado (Origem ➔ 1º Serviço ➔ 2º Serviço...). Clique em qualquer linha da tabela para focar o mapa.
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="bg-cardbg border border-gray-800 rounded-xl shadow-md overflow-hidden">
+            <div class="p-4 border-b border-gray-800 flex justify-between items-center">
+                <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">📋 Serviços Ordenados por Sequência Lógica (Tabela TDC)</h2>
+                <span id="tableCounter" class="text-xs text-gray-400">0 registros exibidos</span>
+            </div>
+            <div class="overflow-x-auto max-h-[450px]">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead class="bg-darkbg text-gray-400 sticky top-0 uppercase tracking-wider border-b border-gray-800 z-10">
+                        <tr>
+                            <th class="p-3 text-neonGreen">Seq. Rota</th>
+                            <th class="p-3">Tipo Remessa WIN</th>
+                            <th class="p-3">Estado TdC</th>
+                            <th class="p-3">Nº Serviço</th>
+                            <th class="p-3">Cód. TdC</th>
+                            <th class="p-3">Cód. Cliente</th>
+                            <th class="p-3">Rota Leitura</th>
+                            <th class="p-3">Endereço Completo</th>
+                            <th class="p-3">Cód. Equipe</th>
+                            <th class="p-3">Prazo ANS Legal</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTableBody" class="divide-y divide-gray-800 text-gray-300">
+                        <tr>
+                            <td colspan="10" class="p-6 text-center text-gray-500">Nenhum dado importado. Selecione a planilha TDC para iniciar.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        let rawData = [];
+        let markersMap = {};
+        let map = L.map('map').setView([-3.7319, -38.5267], 10);
+        let markersLayer = L.layerGroup().addTo(map);
+        let routesLayer = L.layerGroup().addTo(map);
+
+        // Esri Street Map - Livre e Gratuito
+        let esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19,
+            attribution: 'Tiles &copy; Esri'
+        }).addTo(map);
+
+        function handleFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                
+                if (!workbook.SheetNames.includes('TdC')) {
+                    alert('A aba "TdC" não foi encontrada no arquivo Excel!');
+                    return;
+                }
+                
+                const worksheet = workbook.Sheets['TdC'];
+                rawData = XLSX.utils.sheet_to_json(worksheet);
+                
+                populateTeams();
+                alert(`Arquivo importado com sucesso! ${rawData.length} registros encontrados na aba TdC.`);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function populateTeams() {
+            const teamSet = new Set();
+            rawData.forEach(row => {
+                let team = row['Código Equipe'] || row['Equipe'];
+                if (team) teamSet.add(String(team).trim());
+            });
+
+            const teamSelect = document.getElementById('teamSelect');
+            teamSelect.innerHTML = '<option value="">Selecione uma Equipe...</option>';
+            Array.from(teamSet).sort().forEach(team => {
+                let opt = document.createElement('option');
+                opt.value = team;
+                opt.textContent = team;
+                teamSelect.appendChild(opt);
+            });
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function processRoutingAndFilter() {
+            const selectedTeam = document.getElementById('teamSelect').value;
+            const originVal = document.getElementById('originSelect').value.split('|');
+            const originName = originVal[0];
+            const originLat = parseFloat(originVal[1]);
+            const originLon = parseFloat(originVal[2]);
+
+            if (!selectedTeam) {
+                alert('Por favor, selecione um Código de Equipe.');
+                return;
+            }
+
+            const validStates = ['Enviado ao Campo', 'Em execução', 'Designado'];
+
+            let filtered = rawData.filter(row => {
+                let team = String(row['Código Equipe'] || row['Equipe'] || '').trim();
+                let estado = String(row['Estado TdC'] || '').trim();
+                
+                let matchesTeam = (team === selectedTeam);
+                let matchesState = validStates.some(st => estado.toLowerCase().includes(st.toLowerCase()));
+                let hasCoords = row['Latitude'] && row['Longitude'] && !isNaN(row['Latitude']) && !isNaN(row['Longitude']);
+
+                return matchesTeam && matchesState && hasCoords;
+            });
+
+            if (filtered.length === 0) {
+                alert('Nenhum serviço encontrado para esta equipe com os estados exigidos.');
+                document.getElementById('dataTableBody').innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Nenhum registro encontrado.</td></tr>';
+                markersLayer.clearLayers();
+                routesLayer.clearLayers();
+                document.getElementById('statTotal').innerText = '0';
+                document.getElementById('statDist').innerText = '0.0 km';
+                document.getElementById('aiInsights').classList.add('hidden');
+                return;
+            }
+
+            // TSP Nearest Neighbor em Cadeia Sequencial Estrita
+            let unvisited = [...filtered];
+            let routed = [];
+            let currLat = originLat;
+            let currLon = originLon;
+            let totalDistance = 0;
+
+            while (unvisited.length > 0) {
+                let nearestIdx = 0;
+                let minDist = Infinity;
+
+                unvisited.forEach((item, idx) => {
+                    let d = calculateDistance(currLat, currLon, parseFloat(item['Latitude']), parseFloat(item['Longitude']));
+                    if (d < minDist) {
+                        minDist = d;
+                        nearestIdx = idx;
+                    }
+                });
+
+                let nextItem = unvisited.splice(nearestIdx, 1)[0];
+                totalDistance += minDist;
+                
+                // O ponto atual passa a ser o serviço recém-encontrado para o próximo cálculo
+                currLat = parseFloat(nextItem['Latitude']);
+                currLon = parseFloat(nextItem['Longitude']);
+                
+                routed.push(nextItem);
+            }
+
+            updateUI(routed, originName, originLat, originLon, totalDistance);
+        }
+
+        async function updateUI(routedData, originName, originLat, originLon, totalDistance) {
+            markersLayer.clearLayers();
+            routesLayer.clearLayers();
+            markersMap = {};
+            const tbody = document.getElementById('dataTableBody');
+            tbody.innerHTML = '';
+
+            let bounds = [];
+            bounds.push([originLat, originLon]);
+
+            // Marcador da Base de Origem
+            L.marker([originLat, originLon], {
+                icon: L.divIcon({
+                    className: 'custom-origin-icon',
+                    html: `<div style="background:#3b82f6;color:white;padding:4px 8px;border-radius:4px;font-weight:bold;font-size:10px;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.5);">BASE: ${originName}</div>`
+                })
+            }).addTo(markersLayer);
+
+            let routeCoordinates = [[originLat, originLon]];
+
+            routedData.forEach((row, index) => {
+                let seq = index + 1;
+                let lat = parseFloat(row['Latitude']);
+                let lon = parseFloat(row['Longitude']);
+                bounds.push([lat, lon]);
+                routeCoordinates.push([lat, lon]);
+
+                let tipoRemessa = row['Tipo Remessa WIN'] || '-';
+                let estadoTdc = row['Estado TdC'] || '-';
+                let numServico = row[' Numero de Serviço'] || row['Numero de Serviço'] || '-';
+                let codTdc = row['Código TdC'] || '-';
+                let codCliente = row['Código Cliente'] || '-';
+                let rotaLeitura = row['Rota de Leitura'] || '-';
+                let endereco = row['Endereço Completo'] || '-';
+                let equipe = row['Código Equipe'] || row['Equipe'] || '-';
+                let prazoAns = row['Prazo ANS Legal'] || '-';
+
+                // Marcador no Mapa
+                let gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
+                let marker = L.marker([lat, lon], {
+                    icon: L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="background:#10b981;color:#030712;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.5);">${seq}</div>`
+                    })
+                }).addTo(markersLayer);
+
+                marker.bindPopup(`
+                    <div style="font-size: 12px; line-height: 1.4;">
+                        <strong style="color: #10b981; font-size: 13px;">Ordem Sequencial #${seq}</strong><br>
+                        <b>Serviço:</b> ${numServico}<br>
+                        <b>Código TdC:</b> ${codTdc}<br>
+                        <b>Cliente:</b> ${codCliente}<br>
+                        <b>Endereço:</b> ${endereco}<br>
+                        <b>Prazo ANS:</b> ${prazoAns}<br>
+                        <hr style="border-color: #374151; margin: 6px 0;">
+                        <a href="${gmapsUrl}" target="_blank" style="display:block; background:#3b82f6; color:white; text-align:center; padding:6px; border-radius:4px; font-weight:bold; text-decoration:none; margin-top:4px;">
+                            🚗 Ir para a Rota (Google Maps)
+                        </a>
+                    </div>
+                `, {className: 'custom-popup'});
+
+                markersMap[seq] = { marker: marker, lat: lat, lon: lon };
+
+                // Linha da Tabela com Evento de Clique
+                let tr = document.createElement('tr');
+                tr.id = `row-seq-${seq}`;
+                tr.className = 'hover:bg-gray-800/80 transition duration-150 cursor-pointer';
+                tr.onclick = function() { focusOnMap(seq); };
+                tr.innerHTML = `
+                    <td class="p-3 font-bold text-neonGreen text-center bg-darkbg/50">#${seq}</td>
+                    <td class="p-3">${tipoRemessa}</td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] bg-emerald-900/50 text-emerald-300 border border-emerald-700">${estadoTdc}</span></td>
+                    <td class="p-3 font-mono">${numServico}</td>
+                    <td class="p-3 font-mono">${codTdc}</td>
+                    <td class="p-3">${codCliente}</td>
+                    <td class="p-3">${rotaLeitura}</td>
+                    <td class="p-3 truncate max-w-xs" title="${endereco}">${endereco}</td>
+                    <td class="p-3">${equipe}</td>
+                    <td class="p-3">${prazoAns}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // Traçar o percurso completo conectando Base ➔ 1 ➔ 2 ➔ 3... no mapa
+            let polyline = L.polyline(routeCoordinates, {
+                color: '#10b981',
+                weight: 4,
+                opacity: 0.8,
+                dashArray: '6, 6'
+            }).addTo(routesLayer);
+
+            map.fitBounds(bounds, {padding: [50, 50]});
+
+            document.getElementById('statTotal').innerText = routedData.length;
+            document.getElementById('statDist').innerText = totalDistance.toFixed(1) + ' km';
+            document.getElementById('tableCounter').innerText = `${routedData.length} registros exibidos`;
+            document.getElementById('mapCounter').innerText = `${routedData.length} pontos plotados`;
+
+            let avgDist = (totalDistance / routedData.length).toFixed(2);
+            let insightsBox = document.getElementById('aiInsights');
+            let insightsContent = document.getElementById('aiInsightsContent');
+            insightsBox.classList.remove('hidden');
+
+            insightsContent.innerHTML = `
+                <p>• <b>Roteirização Sequencial em Cadeia:</b> O ponto de origem (${originName}) define o 1º serviço; o 1º serviço serve de base para o 2º, e assim sucessivamente em cadeia.</p>
+                <p>• <b>Percurso Completo no Mapa:</b> Todas as ligações de deslocamento foram traçadas em linha de percurso (${totalDistance.toFixed(1)} km totais, média de ${avgDist} km por etapa).</p>
+            `;
+        }
+
+        function focusOnMap(seq) {
+            document.querySelectorAll('#dataTableBody tr').forEach(r => r.classList.remove('selected-row'));
+            const selectedRow = document.getElementById(`row-seq-${seq}`);
+            if (selectedRow) selectedRow.classList.add('selected-row');
+
+            const target = markersMap[seq];
+            if (target) {
+                map.flyTo([target.lat, target.lon], 16, {
+                    animate: true,
+                    duration: 1.2
+                });
+                target.marker.openPopup();
+            }
+        }
+    </script>
+</body>
+</html>
