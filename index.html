@@ -110,6 +110,10 @@
                 </div>
             </div>
             <div class="flex items-center gap-3 flex-wrap">
+                <!-- Indicador da Última Atualização do Drive -->
+                <span id="lastUpdateBadge" class="text-xs bg-darkbg text-gray-300 px-3 py-1.5 rounded-full border border-gray-700 flex items-center gap-1.5">
+                    🕒 Base Drive: <span id="lastUpdateTime" class="text-neonGreen font-semibold">Aguardando...</span>
+                </span>
                 <span id="syncStatus" class="text-xs bg-amber-500/20 text-amber-300 px-3 py-1 rounded-full border border-amber-500/40 animate-pulse">
                     ⏳ Conectando à nuvem oficial...
                 </span>
@@ -349,7 +353,22 @@
                 if (!response.ok) throw new Error('Falha na resposta do Apps Script.');
 
                 updateSplash(70, 'A processar formato JSON...');
-                rawData = await response.json();
+                let jsonRes = await response.json();
+
+                // Suporta tanto formato em objeto ({ data, lastUpdate }) quanto array direto
+                let updateTimeText = '-';
+                if (jsonRes && !Array.isArray(jsonRes) && (jsonRes.data || jsonRes.registros)) {
+                    rawData = jsonRes.data || jsonRes.registros;
+                    updateTimeText = jsonRes.lastUpdate || jsonRes.ultimaAtualizacao || new Date().toLocaleString('pt-BR');
+                } else if (Array.isArray(jsonRes)) {
+                    rawData = jsonRes;
+                    updateTimeText = new Date().toLocaleString('pt-BR') + ' (Sincronizado)';
+                } else {
+                    rawData = jsonRes;
+                    updateTimeText = new Date().toLocaleString('pt-BR');
+                }
+
+                document.getElementById('lastUpdateTime').innerText = updateTimeText;
 
                 if (rawData && rawData.length > 0) {
                     updateSplash(90, 'A configurar filtros e mapa operacional...');
@@ -398,6 +417,9 @@
                 const worksheet = workbook.Sheets[targetSheet];
                 rawData = XLSX.utils.sheet_to_json(worksheet);
                 
+                let localTime = new Date().toLocaleString('pt-BR') + ' (Local .xlsx)';
+                document.getElementById('lastUpdateTime').innerText = localTime;
+
                 updateFilterOptions();
                 document.getElementById('syncStatus').innerText = `✅ Ficheiro Local Carregado (${rawData.length} reg)`;
                 document.getElementById('syncStatus').className = 'text-xs bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/40';
