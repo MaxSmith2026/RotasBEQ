@@ -81,7 +81,7 @@
         <div class="bg-cardbg border border-gray-800 p-6 rounded-2xl shadow-2xl max-w-md w-full text-center space-y-4">
             <div class="bg-neonGreen/10 border border-neonGreen p-3 rounded-xl text-neonGreen font-bold text-2xl inline-block">B&Q</div>
             <h2 class="text-lg font-bold text-white">A carregar dados operacionais...</h2>
-            <p id="splashStatus" class="text-xs text-gray-400">A estabelecer ligação à nuvem...</p>
+            <p id="splashStatus" class="text-xs text-gray-400">A verificar cache local do telemóvel...</p>
             
             <!-- Barra de Progresso -->
             <div class="w-full bg-gray-800 rounded-full h-3 overflow-hidden border border-gray-700">
@@ -273,7 +273,8 @@
         const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwBuAAmrz5DxLjHyo0K8x2-Hc5F-WsPMxAHO-yUzOzpuchEJeNJs0rmzDOmdRtOOJOO/exec';
 
         window.addEventListener('DOMContentLoaded', () => {
-            fetchOnlineData();
+            initAppWithCacheOrFetch();
+
             // Fechar dropdown ao clicar fora
             window.addEventListener('click', function(e) {
                 if (!document.getElementById('remessaContainer').contains(e.target)) {
@@ -339,6 +340,40 @@
             }
         }
 
+        // Verifica se existe cache local no telemóvel para evitar recarregar da nuvem desnecessariamente
+        function initAppWithCacheOrFetch() {
+            showSplashAgain('A verificar memória local do telemóvel...');
+            updateSplash(30, 'A procurar cache guardada...');
+
+            const cachedData = localStorage.getItem('bq_rawData');
+            const cachedTime = localStorage.getItem('bq_updateTime');
+
+            if (cachedData) {
+                try {
+                    updateSplash(70, 'A restaurar dados salvos...');
+                    rawData = JSON.parse(cachedData);
+
+                    if (rawData && rawData.length > 0) {
+                        document.getElementById('lastUpdateTime').innerText = cachedTime || 'Cache Local';
+                        updateFilterOptions();
+                        
+                        const statusEl = document.getElementById('syncStatus');
+                        statusEl.innerText = `⚡ Em Cache Local (${rawData.length} reg)`;
+                        statusEl.className = 'text-xs bg-emerald-500/25 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/50';
+
+                        updateSplash(100, 'Dados recuperados do cache com sucesso!');
+                        enableSplashReady(rawData.length);
+                        return;
+                    }
+                } catch (e) {
+                    console.error('Erro ao carregar cache local:', e);
+                }
+            }
+
+            // Se não houver cache, busca online
+            fetchOnlineData();
+        }
+
         async function fetchOnlineData() {
             showSplashAgain('A estabelecer ligação ao servidor...');
             updateSplash(15, 'A contactar Apps Script Google Drive...');
@@ -355,7 +390,6 @@
                 updateSplash(70, 'A processar formato JSON...');
                 let jsonRes = await response.json();
 
-                // Suporta tanto formato em objeto ({ data, lastUpdate }) quanto array direto
                 let updateTimeText = '-';
                 if (jsonRes && !Array.isArray(jsonRes) && (jsonRes.data || jsonRes.registros)) {
                     rawData = jsonRes.data || jsonRes.registros;
@@ -367,6 +401,10 @@
                     rawData = jsonRes;
                     updateTimeText = new Date().toLocaleString('pt-BR');
                 }
+
+                // Guardar no localStorage do telemóvel
+                localStorage.setItem('bq_rawData', JSON.stringify(rawData));
+                localStorage.setItem('bq_updateTime', updateTimeText);
 
                 document.getElementById('lastUpdateTime').innerText = updateTimeText;
 
@@ -419,6 +457,10 @@
                 
                 let localTime = new Date().toLocaleString('pt-BR') + ' (Local .xlsx)';
                 document.getElementById('lastUpdateTime').innerText = localTime;
+
+                // Salvar também o ficheiro local no cache do telemóvel
+                localStorage.setItem('bq_rawData', JSON.stringify(rawData));
+                localStorage.setItem('bq_updateTime', localTime);
 
                 updateFilterOptions();
                 document.getElementById('syncStatus').innerText = `✅ Ficheiro Local Carregado (${rawData.length} reg)`;
