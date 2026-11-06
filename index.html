@@ -106,7 +106,7 @@
                 <div class="bg-neonGreen/10 border border-neonGreen p-2 rounded-lg text-neonGreen font-bold text-xl">B&Q</div>
                 <div>
                     <h1 class="text-xl font-bold tracking-wide text-white">SOC MULTISKILL | Despacho e Roteirização Inteligente</h1>
-                    <p class="text-xs text-gray-400">Auditoria Operacional, Gestão de Frotas e Otimização de Rotas por IA</p>
+                    <p class="text-xs text-gray-400">Auditoria Operacional, Gestão de Frotas e Otimização de Rotas por IA com SLA</p>
                 </div>
             </div>
             <div class="flex items-center gap-3 flex-wrap">
@@ -177,7 +177,7 @@
         <!-- AI Logistics Insights Box -->
         <div id="aiInsights" class="bg-gradient-to-r from-gray-900 to-gray-800 border-l-4 border-neonGreen p-4 rounded-xl shadow-lg hidden">
             <div class="flex items-center gap-2 mb-2">
-                <span class="text-neonGreen font-bold text-sm">🤖 AI Logistics Advisor & Insights</span>
+                <span class="text-neonGreen font-bold text-sm">🤖 AI Logistics Advisor & SLA Protection</span>
                 <span class="text-xs bg-neonGreen/20 text-neonGreen px-2 py-0.5 rounded">Ativo</span>
             </div>
             <div id="aiInsightsContent" class="text-sm text-gray-300 space-y-1">
@@ -212,13 +212,17 @@
                             <span id="statDist" class="font-bold text-neonBlue">0.0 km</span>
                         </div>
                         <div class="bg-darkbg p-3 rounded-lg border border-gray-800 flex justify-between">
+                            <span class="text-gray-400">Ordens com Risco ANS:</span>
+                            <span id="statRisk" class="font-bold text-red-400">0</span>
+                        </div>
+                        <div class="bg-darkbg p-3 rounded-lg border border-gray-800 flex justify-between">
                             <span class="text-gray-400">Modo de Operação:</span>
                             <span id="statMode" class="text-xs text-neonGreen font-bold">Aguardando Seleção</span>
                         </div>
                     </div>
                 </div>
                 <div class="bg-darkbg p-3 rounded-lg border border-gray-800 text-xs text-gray-400">
-                    💡 <b>Instrução</b>: Selecione o Ponto de Partida acima para exibir os dados.
+                    💡 <b>Instrução</b>: Selecione o Ponto de Partida acima para exibir os dados e cronograma SLA.
                 </div>
             </div>
         </div>
@@ -226,7 +230,7 @@
         <!-- Data Table -->
         <div class="bg-cardbg border border-gray-800 rounded-xl shadow-md overflow-hidden">
             <div class="p-4 border-b border-gray-800 flex justify-between items-center">
-                <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">📋 Serviços (Tabela TDC)</h2>
+                <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wider">📋 Serviços & Cronograma (Tabela TDC)</h2>
                 <span id="tableCounter" class="text-xs text-gray-400">0 registos exibidos</span>
             </div>
             <div class="overflow-x-auto max-h-[450px]">
@@ -238,11 +242,11 @@
                             <th class="p-3">Estado TdC</th>
                             <th class="p-3">Nº Serviço</th>
                             <th class="p-3">Cód. TdC</th>
-                            <th class="p-3">Cód. Cliente</th>
-                            <th class="p-3">Rota Leitura</th>
+                            <th class="p-3">Início Prev.</th>
+                            <th class="p-3">Fim Prev.</th>
+                            <th class="p-3">Prazo ANS Legal</th>
                             <th class="p-3">Endereço Completo</th>
                             <th class="p-3">Cód. Equipe</th>
-                            <th class="p-3">Prazo ANS Legal</th>
                         </tr>
                     </thead>
                     <tbody id="dataTableBody" class="divide-y divide-gray-800 text-gray-300">
@@ -275,7 +279,6 @@
         window.addEventListener('DOMContentLoaded', () => {
             initAppWithCacheOrFetch();
 
-            // Fechar dropdown ao clicar fora
             window.addEventListener('click', function(e) {
                 if (!document.getElementById('remessaContainer').contains(e.target)) {
                     document.getElementById('remessaDropdownContent').classList.remove('show');
@@ -283,7 +286,6 @@
             });
         });
 
-        // Funções de Controlo do Splash Screen
         function updateSplash(percent, text) {
             const bar = document.getElementById('splashProgressBar');
             const pct = document.getElementById('splashPercentage');
@@ -297,7 +299,7 @@
             updateSplash(100, 'Carregamento concluído com sucesso!');
             const btn = document.getElementById('splashOkBtn');
             const status = document.getElementById('splashStatus');
-            if (status) status.innerText = `Pronto! ${count} registos carregados com sucesso. Selecione o Ponto de Partida para visualizar.`;
+            if (status) status.innerText = `Pronto! ${count} registos carregados. Selecione o Ponto de Partida para visualizar.`;
             if (btn) {
                 btn.disabled = false;
                 btn.className = 'w-full bg-neonGreen hover:bg-emerald-600 text-gray-950 font-bold py-3 rounded-lg text-sm transition cursor-pointer shadow-lg shadow-neonGreen/20';
@@ -340,7 +342,6 @@
             }
         }
 
-        // Verifica se existe cache local no telemóvel para evitar recarregar da nuvem desnecessariamente
         function initAppWithCacheOrFetch() {
             showSplashAgain('A verificar memória local do telemóvel...');
             updateSplash(30, 'A procurar cache guardada...');
@@ -370,7 +371,6 @@
                 }
             }
 
-            // Se não houver cache, busca online
             fetchOnlineData();
         }
 
@@ -402,7 +402,6 @@
                     updateTimeText = new Date().toLocaleString('pt-BR');
                 }
 
-                // Guardar no localStorage do telemóvel
                 localStorage.setItem('bq_rawData', JSON.stringify(rawData));
                 localStorage.setItem('bq_updateTime', updateTimeText);
 
@@ -458,7 +457,6 @@
                 let localTime = new Date().toLocaleString('pt-BR') + ' (Local .xlsx)';
                 document.getElementById('lastUpdateTime').innerText = localTime;
 
-                // Salvar também o ficheiro local no cache do telemóvel
                 localStorage.setItem('bq_rawData', JSON.stringify(rawData));
                 localStorage.setItem('bq_updateTime', localTime);
 
@@ -484,7 +482,6 @@
                 remessaContainer.classList.remove('hidden');
                 labelEl.innerText = 'Filtrar por Região (Opcional)';
                 
-                // Preencher Regiões (buscando por 'região', 'Região' ou 'Regiao')
                 const regionSet = new Set();
                 rawData.forEach(row => {
                     let reg = row['região'] || row['Região'] || row['Regiao'];
@@ -503,7 +500,6 @@
                     selectEl.appendChild(opt);
                 });
 
-                // Preencher Tipo Remessa WIN com Checkboxes (todas marcadas por defeito)
                 const remessaSet = new Set();
                 rawData.forEach(row => {
                     let rem = row['Tipo Remessa WIN'];
@@ -594,13 +590,58 @@
             return R * c;
         }
 
+        // Conversor robusto de Data/Hora ANS Legal (Suporta string dd/mm/aaaa hh:mm ou número serial do Excel)
+        function parseAnsDate(val) {
+            if (!val) return null;
+            if (typeof val === 'number') {
+                const utc_days = Math.floor(val - 25569);
+                const utc_value = utc_days * 86400;
+                const date_info = new Date(utc_value * 1000);
+                const fractional_day = val - Math.floor(val) + 0.0000001;
+                let total_seconds = Math.floor(fractional_day * 86400);
+                const seconds = total_seconds % 60;
+                total_seconds -= seconds;
+                const hours = Math.floor(total_seconds / (60 * 60));
+                const minutes = Math.floor(total_seconds / 60) % 60;
+                date_info.setHours(hours, minutes, 0);
+                return date_info;
+            }
+            let str = String(val).trim();
+            let parts = str.split(' ');
+            let dateParts = parts[0].split('/');
+            if (dateParts.length === 3) {
+                let day = parseInt(dateParts[0], 10);
+                let month = parseInt(dateParts[1], 10) - 1;
+                let year = parseInt(dateParts[2], 10);
+                let hours = 23, minutes = 59;
+                if (parts[1]) {
+                    let timeParts = parts[1].split(':');
+                    if (timeParts.length >= 2) {
+                        hours = parseInt(timeParts[0], 10);
+                        minutes = parseInt(timeParts[1], 10);
+                    }
+                }
+                return new Date(year, month, day, hours, minutes, 0);
+            }
+            let d = new Date(str);
+            return isNaN(d.getTime()) ? null : d;
+        }
+
+        function formatDateTime(date) {
+            if (!date || isNaN(date.getTime())) return '-';
+            let dd = String(date.getDate()).padStart(2, '0');
+            let mm = String(date.getMonth() + 1).padStart(2, '0');
+            let hh = String(date.getHours()).padStart(2, '0');
+            let min = String(date.getMinutes()).padStart(2, '0');
+            return `${dd}/${mm} ${hh}:${min}`;
+        }
+
         function autoProcessRouting() {
             if (!rawData || rawData.length === 0) return;
 
             const originVal = document.getElementById('originSelect').value;
             const selectedFilterVal = document.getElementById('teamSelect').value;
 
-            // Se nenhum ponto de origem foi selecionado (em branco), limpa a visualização
             if (!originVal) {
                 document.getElementById('statMode').innerText = 'Aguardando Seleção';
                 document.getElementById('dataTableBody').innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Por favor, selecione o Ponto de Partida acima para exibir os dados.</td></tr>';
@@ -608,15 +649,14 @@
                 routesLayer.clearLayers();
                 document.getElementById('statTotal').innerText = '0';
                 document.getElementById('statDist').innerText = '0.0 km';
+                document.getElementById('statRisk').innerText = '0';
                 document.getElementById('mapCounter').innerText = '(0 pontos)';
                 document.getElementById('aiInsights').classList.add('hidden');
                 return;
             }
 
             if (originVal === 'SEM_DESPACHO') {
-                // Modo SEM DESPACHO: Exibe todos os itens programáveis ou a reprogramar filtrados por Região e Checkboxes de Remessa WIN
                 document.getElementById('statMode').innerText = 'Sem Despacho';
-                
                 const checkedRemessas = Array.from(document.querySelectorAll('.remessa-chk:checked')).map(chk => chk.value);
 
                 let filtered = rawData.filter(row => {
@@ -638,14 +678,15 @@
                 return;
             }
 
-            // Modo Roteirizado por Base Operacional
-            document.getElementById('statMode').innerText = 'Roteirizado por Base';
+            // Modo Roteirizado por Base Operacional com Cálculo SLA & Expediente às 07:30
+            document.getElementById('statMode').innerText = 'Roteirizado por Base (SLA Ativo)';
             if (!selectedFilterVal) {
                 document.getElementById('dataTableBody').innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Selecione uma Equipe para calcular a rota a partir da base.</td></tr>';
                 markersLayer.clearLayers();
                 routesLayer.clearLayers();
                 document.getElementById('statTotal').innerText = '0';
                 document.getElementById('statDist').innerText = '0.0 km';
+                document.getElementById('statRisk').innerText = '0';
                 document.getElementById('aiInsights').classList.add('hidden');
                 return;
             }
@@ -675,34 +716,70 @@
                 routesLayer.clearLayers();
                 document.getElementById('statTotal').innerText = '0';
                 document.getElementById('statDist').innerText = '0.0 km';
+                document.getElementById('statRisk').innerText = '0';
                 document.getElementById('aiInsights').classList.add('hidden');
                 return;
             }
 
-            // TSP Nearest Neighbor Sequencial em Cadeia (Base -> #1 -> #2 -> #3...)
+            // --- ALGORITMO INTELIGENTE DE ROTEIRIZAÇÃO ANTI-MULTA (SLA-AWARE TSP) ---
             let unvisited = [...teamFiltered];
             let routed = [];
             let currLat = originLat;
             let currLon = originLon;
             let totalDistance = 0;
 
+            // Início do expediente às 07:30 de hoje
+            let currentTime = new Date();
+            currentTime.setHours(7, 30, 0, 0);
+
+            const URBAN_SPEED_KMH = 30; // 30 km/h velocidade média urbana
+
             while (unvisited.length > 0) {
-                let nearestIdx = 0;
-                let minDist = Infinity;
+                let bestIdx = 0;
+                let bestScore = Infinity;
 
                 unvisited.forEach((item, idx) => {
                     let d = calculateDistance(currLat, currLon, parseFloat(item['Latitude']), parseFloat(item['Longitude']));
-                    if (d < minDist) {
-                        minDist = d;
-                        nearestIdx = idx;
+                    let travelMin = (d / URBAN_SPEED_KMH) * 60;
+                    let arrivalTime = new Date(currentTime.getTime() + travelMin * 60000);
+                    let durationMin = parseFloat(item['tempo'] || item['Tempo'] || 30);
+                    let completionTime = new Date(arrivalTime.getTime() + durationMin * 60000);
+                    
+                    let ansDate = parseAnsDate(item['Prazo ANS Legal']);
+                    let isLate = ansDate && completionTime > ansDate;
+                    let timeToDeadline = ansDate ? (ansDate.getTime() - completionTime.getTime()) / 60000 : Infinity;
+
+                    // Score: Prioridade máxima para evitar estouro de ANS (evitar multa)
+                    let score = d;
+                    if (isLate) {
+                        score -= 200000; // Penalização massiva para furar a fila se estiver em risco de multa
+                    } else if (timeToDeadline < 90) {
+                        score -= 100000; // Prazos apertados ganham prioridade
+                    }
+
+                    if (score < bestScore) {
+                        bestScore = score;
+                        bestIdx = idx;
                     }
                 });
 
-                let nextItem = unvisited.splice(nearestIdx, 1)[0];
-                totalDistance += minDist;
+                let nextItem = unvisited.splice(bestIdx, 1)[0];
+                let distToNext = calculateDistance(currLat, currLon, parseFloat(nextItem['Latitude']), parseFloat(nextItem['Longitude']));
+                totalDistance += distToNext;
+
+                let travelMin = (distToNext / URBAN_SPEED_KMH) * 60;
+                let startTime = new Date(currentTime.getTime() + travelMin * 60000);
+                let durationMin = parseFloat(nextItem['tempo'] || nextItem['Tempo'] || 30);
+                let endTime = new Date(startTime.getTime() + durationMin * 60000);
+
+                // Anexar previsões calculadas ao objeto
+                nextItem._calcStart = new Date(startTime);
+                nextItem._calcEnd = new Date(endTime);
+
                 currLat = parseFloat(nextItem['Latitude']);
                 currLon = parseFloat(nextItem['Longitude']);
-                
+                currentTime = new Date(endTime); // Avança o relógio da equipe
+
                 routed.push(nextItem);
             }
 
@@ -717,12 +794,12 @@
             tbody.innerHTML = '';
 
             let bounds = [[originLat, originLon]];
+            let riskCount = 0;
 
-            // Marcador da Base
             L.marker([originLat, originLon], {
                 icon: L.divIcon({
                     className: 'custom-origin-icon',
-                    html: `<div style="background:#3b82f6;color:white;padding:4px 8px;border-radius:4px;font-weight:bold;font-size:10px;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.5);">BASE: ${originName}</div>`
+                    html: `<div style="background:#3b82f6;color:white;padding:4px 8px;border-radius:4px;font-weight:bold;font-size:10px;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.5);">BASE: ${originName} (07:30)</div>`
                 })
             }).addTo(markersLayer);
 
@@ -735,10 +812,14 @@
                 bounds.push([lat, lon]);
                 routeCoordinates.push([lat, lon]);
 
-                renderRowAndMarker(row, seq, lat, lon, tbody, '#10b981');
+                let ansDate = parseAnsDate(row['Prazo ANS Legal']);
+                let isAtRisk = ansDate && row._calcEnd > ansDate;
+                if (isAtRisk) riskCount++;
+
+                let markerColor = isAtRisk ? '#ef4444' : '#10b981'; // Vermelho se risco de multa, verde se ok
+                renderRowAndMarker(row, seq, lat, lon, tbody, markerColor, isAtRisk);
             });
 
-            // Linha de percurso sequencial
             L.polyline(routeCoordinates, {
                 color: '#10b981',
                 weight: 4,
@@ -750,17 +831,17 @@
 
             document.getElementById('statTotal').innerText = routedData.length;
             document.getElementById('statDist').innerText = totalDistance.toFixed(1) + ' km';
+            document.getElementById('statRisk').innerText = riskCount;
             document.getElementById('tableCounter').innerText = `${routedData.length} registos exibidos`;
             document.getElementById('mapCounter').innerText = `(${routedData.length} pontos)`;
 
-            let avgDist = (totalDistance / routedData.length).toFixed(2);
             let insightsBox = document.getElementById('aiInsights');
             let insightsContent = document.getElementById('aiInsightsContent');
             insightsBox.classList.remove('hidden');
 
             insightsContent.innerHTML = `
-                <p>• <b>Roteirização Automática:</b> Rota encadeada da base <b>${originName}</b> com <b>${totalDistance.toFixed(1)} km</b> calculados (média de ${avgDist} km por atendimento).</p>
-                <p>• <b>Sincronismo Global:</b> Conectado via Apps Script Web App.</p>
+                <p>• <b>Proteção SLA Ativa:</b> Rota calculada a partir das 07:30 com ${totalDistance.toFixed(1)} km e ${routedData.length} ordens.</p>
+                <p>• <b>Alerta de Multas:</b> <b>${riskCount}</b> ordem(ns) identificada(s) com risco de estouro de Prazo ANS Legal. O roteiro foi ajustado automaticamente para priorizar estas unidades.</p>
             `;
         }
 
@@ -775,12 +856,14 @@
                 tbody.innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Nenhum registo encontrado com os filtros selecionados.</td></tr>';
                 document.getElementById('statTotal').innerText = '0';
                 document.getElementById('statDist').innerText = '0.0 km';
+                document.getElementById('statRisk').innerText = '0';
                 document.getElementById('mapCounter').innerText = '(0 pontos)';
                 document.getElementById('aiInsights').classList.add('hidden');
                 return;
             }
 
             let bounds = [];
+            let riskCount = 0;
 
             dataList.forEach((row, index) => {
                 let seq = index + 1;
@@ -788,10 +871,13 @@
                 let lon = parseFloat(row['Longitude']);
                 bounds.push([lat, lon]);
 
-                let estadoTdc = String(row['Estado TdC'] || '').trim().toLowerCase();
-                let markerColor = estadoTdc.includes('reprogramar') ? '#f59e0b' : '#10b981';
+                let ansDate = parseAnsDate(row['Prazo ANS Legal']);
+                let now = new Date();
+                let isAtRisk = ansDate && now > ansDate;
+                if (isAtRisk) riskCount++;
 
-                renderRowAndMarker(row, seq, lat, lon, tbody, markerColor);
+                let markerColor = isAtRisk ? '#ef4444' : '#10b981';
+                renderRowAndMarker(row, seq, lat, lon, tbody, markerColor, isAtRisk);
             });
 
             if (bounds.length > 0) {
@@ -800,6 +886,7 @@
 
             document.getElementById('statTotal').innerText = dataList.length;
             document.getElementById('statDist').innerText = 'N/A (Sem Rota)';
+            document.getElementById('statRisk').innerText = riskCount;
             document.getElementById('tableCounter').innerText = `${dataList.length} registos exibidos`;
             document.getElementById('mapCounter').innerText = `(${dataList.length} pontos)`;
 
@@ -807,22 +894,29 @@
             let insightsContent = document.getElementById('aiInsightsContent');
             insightsBox.classList.remove('hidden');
             insightsContent.innerHTML = `
-                <p>• <b>Modo ${titleMode}:</b> Exibição geral em massa de todos os serviços elegíveis filtrados por Região e Tipo de Remessa WIN, sem base de partida ou cálculo de distância.</p>
+                <p>• <b>Modo ${titleMode}:</b> Exibição em massa filtrada por Região e Tipo de Remessa WIN.</p>
             `;
         }
 
-        function renderRowAndMarker(row, seq, lat, lon, tbody, markerColor) {
+        function renderRowAndMarker(row, seq, lat, lon, tbody, markerColor, isAtRisk) {
             let tipoRemessa = row['Tipo Remessa WIN'] || '-';
             let estadoTdc = row['Estado TdC'] || '-';
             let numServico = row[' Numero de Serviço'] || row['Numero de Serviço'] || '-';
             let codTdc = row['Código TdC'] || '-';
-            let codCliente = row['Código Cliente'] || '-';
-            let rotaLeitura = row['Rota de Leitura'] || '-';
             let endereco = row['Endereço Completo'] || '-';
             let equipe = row['Código Equipe'] || row['Equipe'] || '-';
             let prazoAns = row['Prazo ANS Legal'] || '-';
+            
+            let parsedAns = parseAnsDate(prazoAns);
+            let formattedAns = formatDateTime(parsedAns);
 
-            // Marcador no Mapa
+            let startStr = row._calcStart ? formatDateTime(row._calcStart) : '-';
+            let endStr = row._calcEnd ? formatDateTime(row._calcEnd) : '-';
+
+            let riskBadge = isAtRisk 
+                ? `<span class="px-2 py-0.5 rounded text-[10px] bg-red-900/60 text-red-300 border border-red-600 font-bold animate-pulse">⚠️ RISCO MULTA</span>`
+                : `<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-900/50 text-emerald-300 border border-emerald-700">OK</span>`;
+
             let gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
             let marker = L.marker([lat, lon], {
                 icon: L.divIcon({
@@ -833,14 +927,13 @@
 
             marker.bindPopup(`
                 <div style="font-size: 12px; line-height: 1.4;">
-                    <strong style="color: ${markerColor}; font-size: 13px;">Item #${seq}</strong><br>
-                    <b>Estado:</b> ${estadoTdc}<br>
+                    <strong style="color: ${markerColor}; font-size: 13px;">Item #${seq}</strong> ${isAtRisk ? '<b style="color:red;">(RISCO DE MULTA)</b>' : ''}<br>
                     <b>Serviço:</b> ${numServico}<br>
-                    <b>Código TdC:</b> ${codTdc}<br>
-                    <b>Cliente:</b> ${codCliente}<br>
+                    <b>Início Prev.:</b> ${startStr}<br>
+                    <b>Fim Prev.:</b> ${endStr}<br>
+                    <b>Prazo ANS:</b> ${formattedAns}<br>
                     <b>Endereço:</b> ${endereco}<br>
                     <b>Equipe:</b> ${equipe}<br>
-                    <b>Prazo ANS:</b> ${prazoAns}<br>
                     <hr style="border-color: #374151; margin: 6px 0;">
                     <a href="${gmapsUrl}" target="_blank" style="display:block; background:#3b82f6; color:white; text-align:center; padding:6px; border-radius:4px; font-weight:bold; text-decoration:none; margin-top:4px;">
                         🚗 Ir para a Rota (Google Maps)
@@ -850,10 +943,9 @@
 
             markersMap[seq] = { marker: marker, lat: lat, lon: lon };
 
-            // Linha Tabela
             let tr = document.createElement('tr');
             tr.id = `row-seq-${seq}`;
-            tr.className = 'hover:bg-gray-800/80 transition duration-150 cursor-pointer';
+            tr.className = `hover:bg-gray-800/80 transition duration-150 cursor-pointer ${isAtRisk ? 'bg-red-950/20' : ''}`;
             tr.onclick = function() { focusOnMap(seq); };
             tr.innerHTML = `
                 <td class="p-3 font-bold text-neonGreen text-center bg-darkbg/50">#${seq}</td>
@@ -861,11 +953,11 @@
                 <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] bg-emerald-900/50 text-emerald-300 border border-emerald-700">${estadoTdc}</span></td>
                 <td class="p-3 font-mono">${numServico}</td>
                 <td class="p-3 font-mono">${codTdc}</td>
-                <td class="p-3">${codCliente}</td>
-                <td class="p-3">${rotaLeitura}</td>
+                <td class="p-3 font-mono text-neonBlue">${startStr}</td>
+                <td class="p-3 font-mono text-neonGreen">${endStr}</td>
+                <td class="p-3 font-mono">${formattedAns} ${riskBadge}</td>
                 <td class="p-3 truncate max-w-xs" title="${endereco}">${endereco}</td>
                 <td class="p-3">${equipe}</td>
-                <td class="p-3">${prazoAns}</td>
             `;
             tbody.appendChild(tr);
         }
