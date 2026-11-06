@@ -75,7 +75,7 @@
             display: block;
         }
 
-        /* PAINEL DE PLAYBACK CORRIGIDO NA PARTE INFERIOR DO MAPA */
+        /* PAINEL DE PLAYBACK FIXADO NA PARTE INFERIOR DO MAPA */
         .playback-panel {
             position: absolute;
             bottom: 12px;
@@ -547,6 +547,17 @@
             reader.readAsArrayBuffer(file);
         }
 
+        // --- FUNÇÃO AUXILIAR PARA RESETAR A ROTA ZUQ E PLAYBACK AO MUDAR EQUIPES/ORIGEM ---
+        function resetZuqAndPlayback() {
+            stopPlaybackLoop();
+            zuqRouteLayer.clearLayers();
+            if (carMarker) {
+                zuqRouteLayer.removeLayer(carMarker);
+                carMarker = null;
+            }
+            document.getElementById('playback-panel').style.display = 'none';
+        }
+
         function onTeamSearchInput(val) {
             const container = document.getElementById('teamSuggestions');
             const originVal = document.getElementById('originSelect').value;
@@ -587,6 +598,7 @@
             document.getElementById('teamSearchInput').value = val;
             document.getElementById('teamSuggestions').classList.add('hidden');
             selectedTeam = val;
+            resetZuqAndPlayback(); // Reseta rota ZUQ anterior e playback ao mudar equipe
             autoProcessRouting();
         }
 
@@ -599,6 +611,7 @@
 
             inputEl.value = '';
             selectedTeam = '';
+            resetZuqAndPlayback(); // Reseta rota ZUQ anterior e playback ao mudar origem
 
             if (originVal === 'SEM_DESPACHO') {
                 remessaContainer.classList.remove('hidden');
