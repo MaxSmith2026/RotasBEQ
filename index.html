@@ -56,6 +56,22 @@
         .map-fullscreen-mode #map {
             height: calc(100vh - 80px) !important;
         }
+        .dropdown-checkbox-content {
+            display: none;
+            position: absolute;
+            background-color: #111827;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            max-height: 250px;
+            overflow-y: auto;
+            width: 100%;
+            padding: 0.5rem;
+        }
+        .dropdown-checkbox-content.show {
+            display: block;
+        }
     </style>
 </head>
 <body class="bg-darkbg text-gray-100 min-h-screen font-sans antialiased">
@@ -112,10 +128,10 @@
     <main class="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
 
         <!-- Controls Panel -->
-        <div class="bg-cardbg border border-gray-800 p-4 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+        <div class="bg-cardbg border border-gray-800 p-4 rounded-xl shadow-md grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <div>
                 <label class="block text-xs font-medium text-gray-400 mb-1">Ponto de Partida / Modo Operacional</label>
-                <select id="originSelect" class="w-full bg-darkbg border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:border-neonGreen focus:ring-1 focus:ring-neonGreen" onchange="autoProcessRouting()">
+                <select id="originSelect" class="w-full bg-darkbg border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:border-neonGreen focus:ring-1 focus:ring-neonGreen" onchange="onOriginChange()">
                     <option value="" selected disabled>-- Selecione o Ponto de Partida --</option>
                     <option value="SEM_DESPACHO">📌 SEM DESPACHO (Programáveis & A Reprogramar)</option>
                     <option value="EUSEBIO|-3.891779|-38.4715828">EUSÉBIO (-3.891779, -38.4715828)</option>
@@ -127,10 +143,30 @@
                 </select>
             </div>
             <div>
-                <label class="block text-xs font-medium text-gray-400 mb-1">Filtrar por Código Equipe (Opcional)</label>
+                <label id="filterLabel" class="block text-xs font-medium text-gray-400 mb-1">Filtrar por Código Equipe</label>
                 <select id="teamSelect" class="w-full bg-darkbg border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:border-neonGreen focus:ring-1 focus:ring-neonGreen" onchange="autoProcessRouting()">
                     <option value="">Aguardando carregamento da nuvem...</option>
                 </select>
+            </div>
+            
+            <!-- Filtro Múltiplo Remessa WIN (Dropdown com checkboxes) -->
+            <div id="remessaContainer" class="hidden relative">
+                <label class="block text-xs font-medium text-gray-400 mb-1">Filtrar por Tipo Remessa WIN</label>
+                <div class="relative">
+                    <button type="button" onclick="toggleRemessaDropdown()" class="w-full bg-darkbg border border-gray-700 rounded-lg p-2.5 text-sm text-white text-left flex justify-between items-center focus:border-neonGreen focus:ring-1 focus:ring-neonGreen">
+                        <span id="remessaButtonText" class="truncate">Todas selecionadas</span>
+                        <span class="text-xs text-gray-400">▼</span>
+                    </button>
+                    <div id="remessaDropdownContent" class="dropdown-checkbox-content">
+                        <div class="flex justify-between items-center mb-2 pb-2 border-b border-gray-800 text-xs">
+                            <button type="button" onclick="selectAllRemessas(true)" class="text-neonGreen hover:underline">Marcar Todos</button>
+                            <button type="button" onclick="selectAllRemessas(false)" class="text-red-400 hover:underline">Desmarcar Todos</button>
+                        </div>
+                        <div id="remessaCheckboxList" class="space-y-1.5 text-xs">
+                            <!-- Preenchido via JS -->
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -234,6 +270,12 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             fetchOnlineData();
+            // Fechar dropdown ao clicar fora
+            window.addEventListener('click', function(e) {
+                if (!document.getElementById('remessaContainer').contains(e.target)) {
+                    document.getElementById('remessaDropdownContent').classList.remove('show');
+                }
+            });
         });
 
         // Funções de Controlo do Splash Screen
@@ -310,12 +352,11 @@
                 rawData = await response.json();
 
                 if (rawData && rawData.length > 0) {
-                    updateSplash(90, 'A configurar equipes e mapa operacional...');
-                    populateTeams();
+                    updateSplash(90, 'A configurar filtros e mapa operacional...');
+                    updateFilterOptions();
                     statusEl.innerText = `✅ Nuvem Sincronizada (${rawData.length} reg)`;
                     statusEl.className = 'text-xs bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/40';
 
-                    // Carga concluída com sucesso (sem processar automático para respeitar a seleção em branco)
                     enableSplashReady(rawData.length);
                 } else {
                     throw new Error('A aba TdC retornou vazia.');
@@ -357,7 +398,7 @@
                 const worksheet = workbook.Sheets[targetSheet];
                 rawData = XLSX.utils.sheet_to_json(worksheet);
                 
-                populateTeams();
+                updateFilterOptions();
                 document.getElementById('syncStatus').innerText = `✅ Ficheiro Local Carregado (${rawData.length} reg)`;
                 document.getElementById('syncStatus').className = 'text-xs bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/40';
 
@@ -366,21 +407,116 @@
             reader.readAsArrayBuffer(file);
         }
 
-        function populateTeams() {
-            const teamSet = new Set();
-            rawData.forEach(row => {
-                let team = row['Código Equipe'] || row['Equipe'];
-                if (team) teamSet.add(String(team).trim());
-            });
+        function updateFilterOptions() {
+            const originVal = document.getElementById('originSelect').value;
+            const selectEl = document.getElementById('teamSelect');
+            const labelEl = document.getElementById('filterLabel');
+            const remessaContainer = document.getElementById('remessaContainer');
+            const remessaCheckboxList = document.getElementById('remessaCheckboxList');
 
-            const teamSelect = document.getElementById('teamSelect');
-            teamSelect.innerHTML = '<option value="">Todas as Equipes (Opcional)</option>';
-            Array.from(teamSet).sort().forEach(team => {
-                let opt = document.createElement('option');
-                opt.value = team;
-                opt.textContent = team;
-                teamSelect.appendChild(opt);
-            });
+            selectEl.innerHTML = '';
+
+            if (originVal === 'SEM_DESPACHO') {
+                remessaContainer.classList.remove('hidden');
+                labelEl.innerText = 'Filtrar por Região (Opcional)';
+                
+                // Preencher Regiões (buscando por 'região', 'Região' ou 'Regiao')
+                const regionSet = new Set();
+                rawData.forEach(row => {
+                    let reg = row['região'] || row['Região'] || row['Regiao'];
+                    if (reg) regionSet.add(String(reg).trim());
+                });
+
+                let defaultOpt = document.createElement('option');
+                defaultOpt.value = '';
+                defaultOpt.textContent = 'Todas as Regiões (Opcional)';
+                selectEl.appendChild(defaultOpt);
+
+                Array.from(regionSet).sort().forEach(reg => {
+                    let opt = document.createElement('option');
+                    opt.value = reg;
+                    opt.textContent = reg;
+                    selectEl.appendChild(opt);
+                });
+
+                // Preencher Tipo Remessa WIN com Checkboxes (todas marcadas por defeito)
+                const remessaSet = new Set();
+                rawData.forEach(row => {
+                    let rem = row['Tipo Remessa WIN'];
+                    if (rem) remessaSet.add(String(rem).trim());
+                });
+
+                remessaCheckboxList.innerHTML = '';
+                Array.from(remessaSet).sort().forEach(rem => {
+                    let label = document.createElement('label');
+                    label.className = 'flex items-center gap-2 px-2 py-1 hover:bg-gray-800 rounded cursor-pointer';
+                    label.innerHTML = `
+                        <input type="checkbox" value="${rem}" checked onchange="onRemessaChange()" class="remessa-chk rounded bg-darkbg border-gray-700 text-neonGreen focus:ring-neonGreen">
+                        <span class="text-gray-300 truncate">${rem}</span>
+                    `;
+                    remessaCheckboxList.appendChild(label);
+                });
+                updateRemessaButtonText();
+
+            } else {
+                remessaContainer.classList.add('hidden');
+                labelEl.innerText = 'Filtrar por Código Equipe';
+                
+                const teamSet = new Set();
+                rawData.forEach(row => {
+                    let team = row['Código Equipe'] || row['Equipe'];
+                    if (team) teamSet.add(String(team).trim());
+                });
+
+                let defaultOpt = document.createElement('option');
+                defaultOpt.value = '';
+                defaultOpt.textContent = 'Selecione uma Equipe...';
+                selectEl.appendChild(defaultOpt);
+
+                Array.from(teamSet).sort().forEach(team => {
+                    let opt = document.createElement('option');
+                    opt.value = team;
+                    opt.textContent = team;
+                    selectEl.appendChild(opt);
+                });
+            }
+        }
+
+        function toggleRemessaDropdown() {
+            const content = document.getElementById('remessaDropdownContent');
+            content.classList.toggle('show');
+        }
+
+        function selectAllRemessas(status) {
+            const checkboxes = document.querySelectorAll('.remessa-chk');
+            checkboxes.forEach(chk => chk.checked = status);
+            updateRemessaButtonText();
+            autoProcessRouting();
+        }
+
+        function onRemessaChange() {
+            updateRemessaButtonText();
+            autoProcessRouting();
+        }
+
+        function updateRemessaButtonText() {
+            const checkboxes = document.querySelectorAll('.remessa-chk');
+            const checkedCount = Array.from(checkboxes).filter(chk => chk.checked).length;
+            const total = checkboxes.length;
+            const btnText = document.getElementById('remessaButtonText');
+
+            if (checkedCount === total) {
+                btnText.innerText = 'Todas selecionadas (' + total + ')';
+            } else if (checkedCount === 0) {
+                btnText.innerText = 'Nenhuma selecionada';
+            } else {
+                btnText.innerText = `${checkedCount} de ${total} selecionadas`;
+            }
+        }
+
+        function onOriginChange() {
+            updateFilterOptions();
+            autoProcessRouting();
         }
 
         function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -398,7 +534,7 @@
             if (!rawData || rawData.length === 0) return;
 
             const originVal = document.getElementById('originSelect').value;
-            const selectedTeam = document.getElementById('teamSelect').value;
+            const selectedFilterVal = document.getElementById('teamSelect').value;
 
             // Se nenhum ponto de origem foi selecionado (em branco), limpa a visualização
             if (!originVal) {
@@ -414,17 +550,24 @@
             }
 
             if (originVal === 'SEM_DESPACHO') {
-                // Modo SEM DESPACHO: Exibe todos os itens programáveis ou a reprogramar, sem base ou TSP
+                // Modo SEM DESPACHO: Exibe todos os itens programáveis ou a reprogramar filtrados por Região e Checkboxes de Remessa WIN
                 document.getElementById('statMode').innerText = 'Sem Despacho';
                 
+                const checkedRemessas = Array.from(document.querySelectorAll('.remessa-chk:checked')).map(chk => chk.value);
+
                 let filtered = rawData.filter(row => {
                     let estado = String(row['Estado TdC'] || '').trim().toLowerCase();
                     let isTargetState = estado.includes('programáveis') || estado.includes('programavel') || estado.includes('reprogramar');
                     
-                    let matchesTeam = selectedTeam ? (String(row['Código Equipe'] || row['Equipe'] || '').trim() === selectedTeam) : true;
+                    let regRow = String(row['região'] || row['Região'] || row['Regiao'] || '').trim();
+                    let matchesRegion = selectedFilterVal ? (regRow === selectedFilterVal) : true;
+                    
+                    let remRow = String(row['Tipo Remessa WIN'] || '').trim();
+                    let matchesRemessa = checkedRemessas.includes(remRow);
+                    
                     let hasCoords = row['Latitude'] && row['Longitude'] && !isNaN(row['Latitude']) && !isNaN(row['Longitude']);
 
-                    return isTargetState && matchesTeam && hasCoords;
+                    return isTargetState && matchesRegion && matchesRemessa && hasCoords;
                 });
 
                 updateUINoRouting(filtered, 'SEM DESPACHO (Programáveis & A Reprogramar)');
@@ -433,7 +576,7 @@
 
             // Modo Roteirizado por Base Operacional
             document.getElementById('statMode').innerText = 'Roteirizado por Base';
-            if (!selectedTeam) {
+            if (!selectedFilterVal) {
                 document.getElementById('dataTableBody').innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Selecione uma Equipe para calcular a rota a partir da base.</td></tr>';
                 markersLayer.clearLayers();
                 routesLayer.clearLayers();
@@ -454,7 +597,7 @@
                 let team = String(row['Código Equipe'] || row['Equipe'] || '').trim();
                 let estado = String(row['Estado TdC'] || '').trim();
                 
-                let matchesTeam = (team === selectedTeam);
+                let matchesTeam = (team === selectedFilterVal);
                 let matchesState = validStates.some(st => estado.toLowerCase().includes(st.toLowerCase()));
                 let hasCoords = row['Latitude'] && row['Longitude'] && !isNaN(row['Latitude']) && !isNaN(row['Longitude']);
 
@@ -565,7 +708,7 @@
             tbody.innerHTML = '';
 
             if (dataList.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Nenhum registo encontrado com os estados Programáveis ou A Reprogramar.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" class="p-6 text-center text-gray-500">Nenhum registo encontrado com os filtros selecionados.</td></tr>';
                 document.getElementById('statTotal').innerText = '0';
                 document.getElementById('statDist').innerText = '0.0 km';
                 document.getElementById('mapCounter').innerText = '(0 pontos)';
@@ -600,7 +743,7 @@
             let insightsContent = document.getElementById('aiInsightsContent');
             insightsBox.classList.remove('hidden');
             insightsContent.innerHTML = `
-                <p>• <b>Modo ${titleMode}:</b> Exibição geral em massa de todos os serviços elegíveis sem base de partida ou cálculo de distância ponto a ponto.</p>
+                <p>• <b>Modo ${titleMode}:</b> Exibição geral em massa de todos os serviços elegíveis filtrados por Região e Tipo de Remessa WIN, sem base de partida ou cálculo de distância.</p>
             `;
         }
 
