@@ -25,6 +25,8 @@
     <!-- Leaflet CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- FontAwesome JS/CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- SheetJS para suporte a ficheiros locais (.xlsx) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
@@ -71,6 +73,71 @@
         }
         .dropdown-checkbox-content.show {
             display: block;
+        }
+
+        /* PAINEL DE PLAYBACK CORRIGIDO NA PARTE INFERIOR DO MAPA */
+        .playback-panel {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 92%;
+            max-width: 650px;
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid #334155;
+            border-radius: 1.25rem;
+            padding: 10px 18px;
+            z-index: 999;
+            display: none;
+            flex-direction: row;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+        }
+        .playback-btn {
+            background: #3b82f6;
+            color: #ffffff;
+            border: none;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+            flex-shrink: 0;
+        }
+        .playback-btn:hover {
+            background: #10b981;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
+            transform: scale(1.05);
+        }
+        .playback-slider-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .playback-slider {
+            width: 100%;
+            cursor: pointer;
+            accent-color: #3b82f6;
+            height: 6px;
+            background: #374151;
+            border-radius: 3px;
+            outline: none;
+        }
+        .playback-info {
+            display: flex;
+            justify-content: space-between;
+            color: #9ca3af;
+            font-size: 11px;
+            font-weight: 800;
+            margin-bottom: 5px;
+            text-transform: uppercase;
         }
     </style>
 </head>
@@ -167,7 +234,7 @@
                 </select>
             </div>
             
-            <!-- Campo de Busca de Equipes (Z-Index Elevado) -->
+            <!-- Campo de Busca de Equipes -->
             <div class="relative z-[99999]">
                 <label id="filterLabel" class="block text-xs font-medium text-gray-400 mb-1">Filtrar por Código Equipe (Clique p/ ver lista ou Digite)</label>
                 <input type="text" id="teamSearchInput" placeholder="Clique para listar Equipes ou digite..." onfocus="onTeamSearchInput(this.value)" oninput="onTeamSearchInput(this.value)" class="w-full bg-darkbg border border-gray-700 rounded-lg p-2.5 text-sm text-white focus:border-neonGreen focus:ring-1 focus:ring-neonGreen">
@@ -224,7 +291,26 @@
                         </button>
                     </div>
                 </div>
-                <div id="map"></div>
+                <div id="map-wrapper" class="relative w-full h-[500px] overflow-hidden rounded-xl">
+                    <div id="map"></div>
+
+                    <!-- PAINEL DE PLAYBACK AO VIVO FIXADO NA PARTE INFERIOR DO MAPA -->
+                    <div id="playback-panel" class="playback-panel">
+                        <button id="btn-play-pause" class="playback-btn" onclick="togglePlayback()">
+                            <i class="fas fa-play" id="icon-play-pause"></i>
+                        </button>
+                        <div class="playback-slider-container">
+                            <div class="playback-info">
+                                <span id="playback-time-current">--:--</span>
+                                <span class="text-neonBlue font-black tracking-widest flex items-center gap-1">
+                                    <i class="fas fa-satellite-dish animate-pulse text-neonGreen"></i> TRACKING AO VIVO (MINUTO A MINUTO)
+                                </span>
+                                <span id="playback-time-total">--:--</span>
+                            </div>
+                            <input type="range" id="playback-slider" class="playback-slider" min="0" max="100" value="0" step="1" oninput="onSliderInput(this.value)">
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="bg-cardbg border border-gray-800 p-4 rounded-xl shadow-md flex flex-col justify-between space-y-4">
                 <div>
@@ -315,6 +401,13 @@
         let selectedTeam = '';
         let selectedPlate = '';
         let currentDayServices = [];
+
+        // --- VARIÁVEIS DE PLAYBACK AO VIVO ---
+        let carMarker = null;
+        let playbackPoints = [];
+        let isPlaying = false;
+        let playbackInterval = null;
+        let currentPlaybackIdx = 0;
 
         window.addEventListener('DOMContentLoaded', () => {
             initAppWithCacheOrFetch();
@@ -454,7 +547,6 @@
             reader.readAsArrayBuffer(file);
         }
 
-        // --- AUTOFILTRO & LISTA DE SELEÇÃO POR DIGITAÇÃO / CLIQUE ---
         function onTeamSearchInput(val) {
             const container = document.getElementById('teamSuggestions');
             const originVal = document.getElementById('originSelect').value;
@@ -612,7 +704,6 @@
             return CRITICAL_SLA_REMESSAS.some(code => val.startsWith(code));
         }
 
-        // --- ROTEIRIZAÇÃO DINÂMICA INTELIGENTE (ROTA CONTÍNUA + ENCAIXE PRECISO DE SLA) ---
         function autoProcessRouting() {
             if (!rawData || rawData.length === 0) return;
 
@@ -625,7 +716,6 @@
                 return;
             }
 
-            // BUSCA DA PLACA: Procura exaustiva nas colunas da equipe
             selectedPlate = '';
             rawData.forEach(row => {
                 let team = String(row['Código Equipe'] || row['Equipe'] || row['EQUIPE'] || '').trim();
@@ -683,7 +773,6 @@
                 return;
             }
 
-            // Data Ativa = HOJE (Atividades Online)
             let today = new Date();
             window.selectedDateISO = today.toISOString().split('T')[0];
 
@@ -692,11 +781,9 @@
             let currLat = originLat, currLon = originLon;
             let totalDistance = 0;
             
-            // Início de Turno Geral: 07:45
             let currentTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 7, 45, 0, 0);
 
             while (unvisited.length > 0) {
-                // 1. Verificar se existe ALGUMA ordem em perigo iminente de estourar a SLA se fizermos outra tarefa antes
                 let urgentIndex = -1;
                 let minSlackMinutes = Infinity;
 
@@ -712,10 +799,8 @@
                         let arrivalIfDirect = applyLunchBreakIfNeeded(new Date(currentTime.getTime() + travelDirectMin * 60000));
                         let finishIfDirect = applyLunchBreakIfNeeded(new Date(arrivalIfDirect.getTime() + execMin * 60000));
                         
-                        // Tempo de folga (Slack) em minutos até a hora limite da ANS
                         let slackMinutes = (ansDate.getTime() - finishIfDirect.getTime()) / 60000;
                         
-                        // Margem de Segurança: se o tempo de folga for menor que 45 min, ela deve ser atendida imediatamente
                         if (slackMinutes <= 45 && slackMinutes < minSlackMinutes) {
                             minSlackMinutes = slackMinutes;
                             urgentIndex = idx;
@@ -725,11 +810,9 @@
 
                 let nextIdx = 0;
 
-                // Se houver uma ordem em risco crítico iminente, obriga o atendimento imediato
                 if (urgentIndex !== -1) {
                     nextIdx = urgentIndex;
                 } else {
-                    // Caso contrário, busca a ordem de MENOR DESLOCAMENTO para manter o fluxo contínuo e sem ziguezague
                     let minDistance = Infinity;
                     unvisited.forEach((item, idx) => {
                         let d = calculateDistance(currLat, currLon, parseFloat(item['Latitude']), parseFloat(item['Longitude']));
@@ -903,7 +986,6 @@
             tbody.appendChild(tr);
         }
 
-        // --- INTEGRAÇÃO DA API ZUQ COM DATA ATUAL DE HOJE ---
         async function fetchZuqRouteApi() {
             if (!selectedPlate) {
                 alert("Nenhuma placa associada à equipe foi encontrada na tabela.");
@@ -959,46 +1041,200 @@
         function processZuqRouteData(routeData) {
             zuqRouteLayer.clearLayers();
             let coords = [];
-            let lastPoint = null;
+            let parsedPoints = [];
 
             routeData.forEach(p => {
-                let lat = p.lat || p.latitude;
-                let lon = p.lng || p.longitude || p.lon;
-                if (lat && lon) {
+                let lat = parseFloat(p.lat || p.latitude);
+                let lon = parseFloat(p.lng || p.longitude || p.lon);
+                let speed = parseFloat(p.speedKMH || p.speed || 0);
+                let ignition = Boolean(p.ignition);
+                let timeRaw = p.gpsTime || p.gps_time || p.date_time || p.date;
+                let dt = timeRaw ? new Date(timeRaw) : null;
+
+                if (!isNaN(lat) && !isNaN(lon)) {
                     coords.push([lat, lon]);
-                    lastPoint = p;
+                    parsedPoints.push({ lat, lon, speed, ignition, date: dt, rawTime: timeRaw });
                 }
             });
 
             if (coords.length > 0) {
-                L.polyline(coords, { color: '#3b82f6', weight: 4, opacity: 0.9 }).addTo(zuqRouteLayer);
-                
-                if (lastPoint) {
-                    let lastLat = lastPoint.lat || lastPoint.latitude;
-                    let lastLon = lastPoint.lng || lastPoint.longitude || lastPoint.lon;
-                    let lastTime = lastPoint.gpsTime || lastPoint.gps_time || lastPoint.date_time || 'Agora';
+                let polyline = L.polyline(coords, { 
+                    color: '#3b82f6', 
+                    weight: 6, 
+                    opacity: 0.9 
+                }).addTo(zuqRouteLayer);
+
+                polyline.on('click', function(e) {
+                    let clickLat = e.latlng.lat;
+                    let clickLng = e.latlng.lng;
                     
-                    let marker = L.marker([lastLat, lastLon], {
-                        icon: L.divIcon({
-                            className: 'custom-zuq-current',
-                            html: `<div style="background:#ef4444;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;border:2px solid white;box-shadow:0 0 10px red;">📍</div>`
-                        })
-                    }).addTo(zuqRouteLayer);
+                    let closestPoint = parsedPoints[0];
+                    let minDistance = Infinity;
 
-                    marker.bindPopup(`
-                        <div style="font-size:12px;">
-                            <b>🚗 Posição Atual da Viatura (ZUQ)</b><br>
-                            Placa: <b>${selectedPlate}</b><br>
-                            Hora GPS: <b>${lastTime}</b><br>
-                            Velocidade: <b>${lastPoint.speed || 0} km/h</b>
-                        </div>
-                    `).openPopup();
+                    parsedPoints.forEach(pt => {
+                        let dist = calculateDistance(clickLat, clickLng, pt.lat, pt.lon);
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            closestPoint = pt;
+                        }
+                    });
 
-                    map.setView([lastLat, lastLon], 15);
-                }
+                    let timeFormatted = closestPoint.date ? closestPoint.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : (closestPoint.rawTime || 'N/I');
+                    let speedFormatted = closestPoint.speed.toFixed(1);
+                    let ignStatus = closestPoint.ignition ? '<span style="color:#10b981;font-weight:bold;">LIGADO</span>' : '<span style="color:#ef4444;font-weight:bold;">DESLIGADO</span>';
 
+                    L.popup()
+                        .setLatLng(e.latlng)
+                        .setContent(`
+                            <div style="font-size:12px; line-height:1.5;">
+                                <strong style="color:#3b82f6; font-size:13px;">📡 Telemetria ZUQ (Ponto de Passagem)</strong><br>
+                                <b>Horário GPS:</b> <span style="color:#fbbf24; font-family:monospace; font-weight:bold;">${timeFormatted}</span><br>
+                                <b>Velocidade:</b> ${speedFormatted} km/h<br>
+                                <b>Motor:</b> ${ignStatus}<br>
+                                <b>Placa:</b> ${selectedPlate}
+                            </div>
+                        `)
+                        .openOn(map);
+                });
+
+                parsedPoints.forEach((pt, idx) => {
+                    if (idx % 3 === 0) {
+                        let circle = L.circleMarker([pt.lat, pt.lon], {
+                            radius: 4,
+                            color: '#3b82f6',
+                            fillColor: '#ffffff',
+                            fillOpacity: 0.8,
+                            weight: 1.5
+                        }).addTo(zuqRouteLayer);
+
+                        let tFmt = pt.date ? pt.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '-';
+                        circle.bindPopup(`
+                            <div style="font-size:11px;">
+                                <b>📍 Ponto GPS ZUQ</b><br>
+                                Hora: <b>${tFmt}</b><br>
+                                Vel: <b>${pt.speed.toFixed(1)} km/h</b>
+                            </div>
+                        `);
+                    }
+                });
+
+                map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+                initPlayback(parsedPoints);
                 runAiRouteAudit(routeData, currentDayServices);
             }
+        }
+
+        function initPlayback(points) {
+            stopPlaybackLoop();
+            if (carMarker) {
+                zuqRouteLayer.removeLayer(carMarker);
+                carMarker = null;
+            }
+
+            playbackPoints = points.filter(p => p.lat && p.lon).sort((a, b) => (a.date ? a.date.getTime() : 0) - (b.date ? b.date.getTime() : 0));
+            const panel = document.getElementById('playback-panel');
+
+            if (playbackPoints.length < 2) {
+                panel.style.display = 'none';
+                return;
+            }
+
+            panel.style.display = 'flex';
+
+            const slider = document.getElementById('playback-slider');
+            slider.min = 0;
+            slider.max = playbackPoints.length - 1;
+            slider.value = 0;
+            currentPlaybackIdx = 0;
+
+            const formatTimeOnly = (dt) => dt ? dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+            document.getElementById('playback-time-current').innerText = formatTimeOnly(playbackPoints[0].date);
+            document.getElementById('playback-time-total').innerText = formatTimeOnly(playbackPoints[playbackPoints.length - 1].date);
+
+            const carIcon = L.divIcon({
+                className: 'car-playback-icon',
+                html: `<div style="background-color: #0a0f1d; border: 2px solid #10b981; border-radius: 8px; padding: 4px; color: #10b981; font-size: 16px; box-shadow: 0 0 15px rgba(16, 185, 129, 0.8); display:flex; align-items:center; justify-content:center;">
+                        <i class="fas fa-car-side"></i>
+                       </div>`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+            });
+
+            const startPoint = playbackPoints[0];
+            carMarker = L.marker([startPoint.lat, startPoint.lon], {
+                icon: carIcon,
+                zIndexOffset: 1000
+            }).addTo(zuqRouteLayer);
+
+            updateCarPopup(startPoint);
+            resetPlayButton();
+        }
+
+        function updateCarPopup(point) {
+            if (!carMarker) return;
+            let timeFmt = point.date ? point.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-';
+            let ignHtml = point.ignition ? '<span style="color:#10b981; font-weight:bold;">LIGADO</span>' : '<span style="color:#ef4444; font-weight:bold;">DESLIGADO</span>';
+            carMarker.bindPopup(`
+                <div style="text-align:center; font-size:12px;">
+                    <b style="color:#3b82f6; font-size:13px;"><i class="fas fa-broadcast-tower"></i> Tracking ZUQ Ao Vivo</b><br>
+                    <div style="font-size:14px; font-weight:bold; margin: 4px 0; color:#fbbf24;">${timeFmt}</div>
+                    <b>Velocidade:</b> ${point.speed.toFixed(1)} km/h<br>
+                    <b>Motor:</b> ${ignHtml}
+                </div>
+            `);
+        }
+
+        function stopPlaybackLoop() {
+            if (playbackInterval) {
+                clearInterval(playbackInterval);
+                playbackInterval = null;
+            }
+            isPlaying = false;
+            resetPlayButton();
+        }
+
+        function resetPlayButton() {
+            const icon = document.getElementById('icon-play-pause');
+            if (icon) icon.className = 'fas fa-play';
+        }
+
+        function togglePlayback() {
+            const icon = document.getElementById('icon-play-pause');
+            if (isPlaying) {
+                stopPlaybackLoop();
+            } else {
+                isPlaying = true;
+                icon.className = 'fas fa-pause';
+                if (currentPlaybackIdx >= playbackPoints.length - 1) {
+                    currentPlaybackIdx = 0;
+                    document.getElementById('playback-slider').value = 0;
+                }
+                playbackInterval = setInterval(playLoop, 250);
+            }
+        }
+
+        function playLoop() {
+            if (currentPlaybackIdx >= playbackPoints.length - 1) {
+                stopPlaybackLoop();
+                return;
+            }
+            currentPlaybackIdx++;
+            document.getElementById('playback-slider').value = currentPlaybackIdx;
+            moveCarToIndex(currentPlaybackIdx);
+        }
+
+        function onSliderInput(value) {
+            currentPlaybackIdx = parseInt(value, 10);
+            moveCarToIndex(currentPlaybackIdx);
+        }
+
+        function moveCarToIndex(idx) {
+            if (!carMarker || !playbackPoints[idx]) return;
+            const point = playbackPoints[idx];
+            carMarker.setLatLng([point.lat, point.lon]);
+            document.getElementById('playback-time-current').innerText = point.date ? point.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+            updateCarPopup(point);
+            map.panTo([point.lat, point.lon], { animate: true, duration: 0.25 });
         }
 
         function runAiRouteAudit(routeData, plannedServices) {
