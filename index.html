@@ -492,6 +492,13 @@
             }
         }
 
+        function cleanVal(val) {
+            if (val === undefined || val === null) return '-';
+            let str = String(val).trim();
+            if (str === '' || str.toUpperCase() === '#N/A' || str === '#N/D' || str.toLowerCase() === 'null' || str.toLowerCase() === 'undefined') return '-';
+            return str;
+        }
+
         function normalizeKey(str) {
             if (str === null || str === undefined) return '';
             let s = String(str).trim().toLowerCase();
@@ -508,12 +515,24 @@
                     }
                 }
             }
-            // Fallback: se nenhuma chave específica for encontrada, pega o primeiro valor válido
-            let values = Object.values(row);
-            if (values.length > 0 && values[0]) {
-                return normalizeKey(values[0]);
-            }
             return '';
+        }
+
+        function findPropByKeywords(obj, keywords) {
+            if (!obj) return null;
+            for (let k in obj) {
+                let normK = k.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+                for (let kw of keywords) {
+                    let normKw = kw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+                    if (normK.includes(normKw)) {
+                        let val = obj[k];
+                        if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '#N/A') {
+                            return val;
+                        }
+                    }
+                }
+            }
+            return null;
         }
 
         function buildExecutedMap() {
@@ -524,37 +543,59 @@
                 let code = extractTdcCode(item);
                 if (code) {
                     executedMap[code] = {
-                        resultado: item['RESULTADO'] || item['Resultado'] || item['resultado'] || item['RESULTADO_EXEC'] || '-',
-                        observacao: item['OBSERVACAO'] || item['Observação'] || item['Observacao'] || item['observacao'] || '-',
-                        dataInicio: item['DATA INICIO'] || item['Data Início'] || item['Data Inicio'] || item['DATA_INICIO'] || item['Início Real'] || '-',
-                        dataFim: item['DATA FIM'] || item['Data Fim'] || item['DATA_FIM'] || item['Fim Real'] || '-',
-                        pontosRealizado: item['PONTOS REALIZADO'] || item['Pontos Realizado'] || item['PONTOS_REALIZADOS'] || item['Pontos Realizados'] || item['PONTOS'] || '-'
+                        resultado: cleanVal(findPropByKeywords(item, ['resultado'])),
+                        observacao: cleanVal(findPropByKeywords(item, ['observacao', 'obs'])),
+                        dataInicio: cleanVal(findPropByKeywords(item, ['datainicio', 'inicio'])),
+                        dataFim: cleanVal(findPropByKeywords(item, ['datafim', 'fim'])),
+                        pontosRealizado: cleanVal(findPropByKeywords(item, ['pontosrealizado', 'pontosrealizados', 'pontos']))
                     };
                 }
             });
         }
 
         function getBaixaInfo(row) {
+            let res = findPropByKeywords(row, ['resultado']);
+            let obs = findPropByKeywords(row, ['observacao', 'obs']);
+            let inicio = findPropByKeywords(row, ['datainicio', 'inicioreal']);
+            let fim = findPropByKeywords(row, ['datafim', 'fimreal']);
+            let pontos = findPropByKeywords(row, ['pontosrealizado', 'pontosrealizados', 'pontos']);
+
+            if (res || obs || inicio || fim || pontos) {
+                return {
+                    resultado: cleanVal(res),
+                    observacao: cleanVal(obs),
+                    dataInicio: cleanVal(inicio),
+                    dataFim: cleanVal(fim),
+                    pontosRealizado: cleanVal(pontos)
+                };
+            }
+
             let code = extractTdcCode(row);
             if (code && executedMap[code]) {
                 return executedMap[code];
             }
+
             return {
-                resultado: row['RESULTADO'] || row['Resultado'] || '-',
-                observacao: row['OBSERVACAO'] || row['Observação'] || row['Observacao'] || '-',
-                dataInicio: row['DATA INICIO'] || row['Data Início'] || row['Data Inicio'] || '-',
-                dataFim: row['DATA FIM'] || row['Data Fim'] || '-',
-                pontosRealizado: row['PONTOS REALIZADO'] || row['Pontos Realizado'] || '-'
+                resultado: '-',
+                observacao: '-',
+                dataInicio: '-',
+                dataFim: '-',
+                pontosRealizado: '-'
             };
+        }
+
+        function isRowExecuted(row) {
+            let val = String(row['Executado?'] || row['Executado'] || row['EXECUTADO'] || row['executado'] || findPropByKeywords(row, ['executado']) || '').trim().toLowerCase();
+            return (val === 'sim' || val === 's' || val === 'true' || val === '1' || val === 'executado');
         }
 
         function calculateExecutedPoints(dataList) {
             let total = 0;
             dataList.forEach(row => {
-                let executadoVal = String(row['Executado?'] || row['Executado'] || row['EXECUTADO'] || row['executado'] || '').trim().toLowerCase();
-                if (executadoVal === 'sim') {
+                if (isRowExecuted(row)) {
                     let baixa = getBaixaInfo(row);
-                    let pts = parseFloat(String(baixa.pontosRealizado).replace(',', '.'));
+                    let ptsStr = String(baixa.pontosRealizado).replace(',', '.');
+                    let pts = parseFloat(ptsStr);
                     if (!isNaN(pts)) {
                         total += pts;
                     }
@@ -1054,8 +1095,7 @@
         }
 
         function renderRowAndMarker(row, seq, lat, lon, tbody, markerColor, isAtRisk, isCritical) {
-            let executadoVal = String(row['Executado?'] || row['Executado'] || row['EXECUTADO'] || row['executado'] || '').trim().toLowerCase();
-            let isExecuted = (executadoVal === 'sim');
+            let isExecuted = isRowExecuted(row);
             if (isExecuted) {
                 markerColor = '#3b82f6';
             }
