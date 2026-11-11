@@ -422,7 +422,6 @@
         let currentPlaybackIdx = 0;
 
         window.addEventListener('DOMContentLoaded', () => {
-            // REGRA: Limpeza preventiva total da RAM/Cache ao carregar ou atualizar a página
             clearBrowserRamCache();
             initAppWithCacheOrFetch();
 
@@ -512,29 +511,29 @@
             return str;
         }
 
-        // Função corrigida para extrair a hora exata da string ou número do Google Sheets sem distorção UTC
+        // Correção definitiva de Leitura Literal de Horário sem conversão UTC de fuso
         function formatRealDateTime(val) {
             let cleaned = cleanVal(val);
             if (cleaned === '-') return '-';
 
-            // Se for número serial do Excel / Sheets
+            // Se vier como número serial do Excel
             if (!isNaN(val) && typeof val === 'number') {
                 const utc_days = Math.floor(val - 25569);
                 const date_info = new Date(utc_days * 86400 * 1000);
                 const fractional_day = val - Math.floor(val) + 0.0000001;
                 let total_seconds = Math.floor(fractional_day * 86400);
-                date_info.setHours(Math.floor(total_seconds / 3600), Math.floor(total_seconds / 60) % 60, total_seconds % 60);
-                let day = String(date_info.getDate()).padStart(2, '0');
-                let month = String(date_info.getMonth() + 1).padStart(2, '0');
-                let year = date_info.getFullYear();
-                let hours = String(date_info.getHours()).padStart(2, '0');
-                let minutes = String(date_info.getMinutes()).padStart(2, '0');
-                let seconds = String(date_info.getSeconds()).padStart(2, '0');
+                date_info.setUTCHours(Math.floor(total_seconds / 3600), Math.floor(total_seconds / 60) % 60, total_seconds % 60);
+                let day = String(date_info.getUTCDate()).padStart(2, '0');
+                let month = String(date_info.getUTCMonth() + 1).padStart(2, '0');
+                let year = date_info.getUTCFullYear();
+                let hours = String(date_info.getUTCHours()).padStart(2, '0');
+                let minutes = String(date_info.getUTCMinutes()).padStart(2, '0');
+                let seconds = String(date_info.getUTCSeconds()).padStart(2, '0');
                 return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
             }
 
             let strVal = String(val).trim();
-            // Se contiver 'T' e 'Z' (ISO string), interpretamos extraindo estritamente os dígitos locais para evitar UTC offset de 3h
+            // Se vier em formato ISO ex: 2026-11-10T12:53:00.000Z, extrai literalmente os componentes UTC para manter o horário exato da planilha
             if (strVal.includes('T')) {
                 let parts = strVal.split('T');
                 let datePart = parts[0]; // YYYY-MM-DD
@@ -542,10 +541,7 @@
                 
                 let dParts = datePart.split('-');
                 if (dParts.length === 3) {
-                    let year = dParts[0];
-                    let month = dParts[1];
-                    let day = dParts[2];
-                    return `${day}/${month}/${year} ${timePart}`;
+                    return `${dParts[2]}/${dParts[1]}/${dParts[0]} ${timePart}`;
                 }
             }
 
