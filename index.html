@@ -148,7 +148,7 @@
         <div class="bg-cardbg border border-gray-800 p-6 rounded-2xl shadow-2xl max-w-md w-full text-center space-y-4">
             <div class="bg-neonGreen/10 border border-neonGreen p-3 rounded-xl text-neonGreen font-bold text-2xl inline-block">B&Q</div>
             <h2 class="text-lg font-bold text-white">A carregar dados operacionais...</h2>
-            <p id="splashStatus" class="text-xs text-gray-400">A verificar cache local...</p>
+            <p id="splashStatus" class="text-xs text-gray-400">A limpar RAM e verificar cache local...</p>
             
             <div class="w-full bg-gray-800 rounded-full h-3 overflow-hidden border border-gray-700">
                 <div id="splashProgressBar" class="bg-neonGreen h-full w-0 transition-all duration-300"></div>
@@ -422,6 +422,8 @@
         let currentPlaybackIdx = 0;
 
         window.addEventListener('DOMContentLoaded', () => {
+            // REGRA: Limpeza preventiva total da RAM/Cache ao carregar ou atualizar a página
+            clearBrowserRamCache();
             initAppWithCacheOrFetch();
 
             window.addEventListener('click', function(e) {
@@ -435,6 +437,17 @@
                 }
             });
         });
+
+        function clearBrowserRamCache() {
+            try {
+                localStorage.removeItem('bq_rawData');
+                localStorage.removeItem('bq_rawExecutadoData');
+                localStorage.removeItem('bq_updateTime');
+                localStorage.removeItem('bq_cacheDate');
+            } catch (e) {
+                console.warn('Erro ao limpar cache:', e);
+            }
+        }
 
         function updateSplash(percent, text) {
             const bar = document.getElementById('splashProgressBar');
@@ -499,26 +512,44 @@
             return str;
         }
 
-        // Função para corrigir e formatar datas reais vindas do Google Sheets (remove bug UTC)
+        // Função corrigida para extrair a hora exata da string ou número do Google Sheets sem distorção UTC
         function formatRealDateTime(val) {
             let cleaned = cleanVal(val);
             if (cleaned === '-') return '-';
 
-            // Se for string ISO ex: 2026-11-10T18:26:00.000Z ou contiver 'T'
-            if (cleaned.includes('T') || (cleaned.includes('-') && cleaned.includes(':'))) {
-                let d = new Date(cleaned);
-                if (!isNaN(d.getTime())) {
-                    // Extrai data e hora local diretamente sem conversão errônea de fuso UTC
-                    let day = String(d.getDate()).padStart(2, '0');
-                    let month = String(d.getMonth() + 1).padStart(2, '0');
-                    let year = d.getFullYear();
-                    let hours = String(d.getHours()).padStart(2, '0');
-                    let minutes = String(d.getMinutes()).padStart(2, '0');
-                    let seconds = String(d.getSeconds()).padStart(2, '0');
-                    return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+            // Se for número serial do Excel / Sheets
+            if (!isNaN(val) && typeof val === 'number') {
+                const utc_days = Math.floor(val - 25569);
+                const date_info = new Date(utc_days * 86400 * 1000);
+                const fractional_day = val - Math.floor(val) + 0.0000001;
+                let total_seconds = Math.floor(fractional_day * 86400);
+                date_info.setHours(Math.floor(total_seconds / 3600), Math.floor(total_seconds / 60) % 60, total_seconds % 60);
+                let day = String(date_info.getDate()).padStart(2, '0');
+                let month = String(date_info.getMonth() + 1).padStart(2, '0');
+                let year = date_info.getFullYear();
+                let hours = String(date_info.getHours()).padStart(2, '0');
+                let minutes = String(date_info.getMinutes()).padStart(2, '0');
+                let seconds = String(date_info.getSeconds()).padStart(2, '0');
+                return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+            }
+
+            let strVal = String(val).trim();
+            // Se contiver 'T' e 'Z' (ISO string), interpretamos extraindo estritamente os dígitos locais para evitar UTC offset de 3h
+            if (strVal.includes('T')) {
+                let parts = strVal.split('T');
+                let datePart = parts[0]; // YYYY-MM-DD
+                let timePart = parts[1] ? parts[1].split('.')[0].replace('Z', '') : '00:00:00'; // HH:MM:SS
+                
+                let dParts = datePart.split('-');
+                if (dParts.length === 3) {
+                    let year = dParts[0];
+                    let month = dParts[1];
+                    let day = dParts[2];
+                    return `${day}/${month}/${year} ${timePart}`;
                 }
             }
-            return cleaned;
+
+            return strVal;
         }
 
         function normalizeKey(str) {
@@ -655,39 +686,13 @@
         }
 
         function initAppWithCacheOrFetch() {
-            showSplashAgain('A verificar memória local...');
-            const cachedData = localStorage.getItem('bq_rawData');
-            const cachedExecData = localStorage.getItem('bq_rawExecutadoData');
-            const cachedTime = localStorage.getItem('bq_updateTime');
-            const cachedDate = localStorage.getItem('bq_cacheDate');
-            const todayDateISO = new Date().toISOString().split('T')[0];
-
-            if (cachedData && cachedDate === todayDateISO) {
-                try {
-                    rawData = JSON.parse(cachedData);
-                    rawExecutadoData = cachedExecData ? JSON.parse(cachedExecData) : [];
-                    buildExecutedMap();
-                    if (rawData && rawData.length > 0) {
-                        document.getElementById('lastUpdateTime').innerText = cachedTime || 'Cache Local';
-                        document.getElementById('syncStatus').innerText = `⚡ Em Cache (${rawData.length} reg)`;
-                        document.getElementById('syncStatus').className = 'text-xs bg-emerald-500/25 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/50';
-                        enableSplashReady(rawData.length);
-                        return;
-                    }
-                } catch (e) {
-                    console.error(e);
-                }
-            } else if (cachedData && cachedDate !== todayDateISO) {
-                localStorage.removeItem('bq_rawData');
-                localStorage.removeItem('bq_rawExecutadoData');
-                localStorage.removeItem('bq_updateTime');
-                localStorage.removeItem('bq_cacheDate');
-            }
+            showSplashAgain('A ligar à nuvem oficial (Limpando RAM)...');
             fetchOnlineData();
         }
 
         async function fetchOnlineData() {
-            showSplashAgain('A ligar à nuvem oficial...');
+            clearBrowserRamCache();
+            showSplashAgain('A descarregar dados atualizados da nuvem...');
             try {
                 const response = await fetch(APPS_SCRIPT_URL);
                 if (!response.ok) throw new Error('Falha no Apps Script.');
@@ -720,6 +725,7 @@
         function handleFile(e) {
             const file = e.target.files[0];
             if (!file) return;
+            clearBrowserRamCache();
             showSplashAgain('A ler ficheiro Excel...');
             const reader = new FileReader();
             reader.onload = function(e) {
