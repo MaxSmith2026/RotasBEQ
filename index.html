@@ -626,6 +626,34 @@
             return total;
         }
 
+        function clearMapAndTable() {
+            markersLayer.clearLayers();
+            routesLayer.clearLayers();
+            zuqRouteLayer.clearLayers();
+            markersMap = {};
+            currentDayServices = [];
+
+            stopPlaybackLoop();
+            if (carMarker) {
+                carMarker = null;
+            }
+            document.getElementById('playback-panel').style.display = 'none';
+
+            const tbody = document.getElementById('dataTableBody');
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="16" class="p-6 text-center text-gray-500">Selecione o Ponto de Partida e a Equipe/Região para iniciar.</td></tr>';
+            }
+
+            document.getElementById('statTotal').innerText = '0';
+            document.getElementById('statPoints').innerText = '0.0 pts';
+            document.getElementById('statDist').innerText = '0.0 km';
+            document.getElementById('statRisk').innerText = '0';
+            document.getElementById('statPlate').innerText = 'N/D';
+            document.getElementById('tableCounter').innerText = '0 registos exibidos';
+            document.getElementById('mapCounter').innerText = '(0 pontos)';
+            document.getElementById('aiInsights').classList.add('hidden');
+        }
+
         function initAppWithCacheOrFetch() {
             showSplashAgain('A verificar memória local...');
             const cachedData = localStorage.getItem('bq_rawData');
@@ -736,6 +764,9 @@
             const originVal = document.getElementById('originSelect').value;
             const query = (val || '').trim().toUpperCase();
 
+            selectedTeam = (val || '').trim();
+            clearMapAndTable();
+
             if (!rawData || rawData.length === 0) return;
 
             let itemsSet = new Set();
@@ -765,13 +796,17 @@
                 container.innerHTML = '<div class="p-2.5 text-xs text-gray-500 italic">Nenhum resultado encontrado</div>';
                 container.classList.remove('hidden');
             }
+
+            if (query) {
+                autoProcessRouting();
+            }
         }
 
         function selectTeamSuggestion(val) {
             document.getElementById('teamSearchInput').value = val;
             document.getElementById('teamSuggestions').classList.add('hidden');
             selectedTeam = val;
-            resetZuqAndPlayback();
+            clearMapAndTable();
             autoProcessRouting();
         }
 
@@ -784,7 +819,7 @@
 
             inputEl.value = '';
             selectedTeam = '';
-            resetZuqAndPlayback();
+            clearMapAndTable();
 
             if (originVal === 'SEM_DESPACHO') {
                 remessaContainer.classList.remove('hidden');
