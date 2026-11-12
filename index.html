@@ -443,6 +443,7 @@
                 localStorage.removeItem('bq_rawExecutadoData');
                 localStorage.removeItem('bq_updateTime');
                 localStorage.removeItem('bq_cacheDate');
+                sessionStorage.clear();
             } catch (e) {
                 console.warn('Erro ao limpar cache:', e);
             }
@@ -511,15 +512,42 @@
             return str;
         }
 
-        // --- CORREÇÃO DEFINITIVA DE LEITURA TEXTUAL ---
-        // Extrai a data e hora via regex sem passar por Date() para evitar deslocamento de fuso
+        // --- VISUALIZAÇÃO EM TEXTO PURO IGUAL AO GOOGLE DRIVE ---
         function formatRealDateTime(val) {
             let cleaned = cleanVal(val);
             if (cleaned === '-') return '-';
 
             let strVal = String(val).trim();
 
-            // Se for número serial de Excel (ex: 45607.5368)
+            // 1. Se o Apps Script já enviou como texto do Drive (ex: "11/11/2026 12:53" ou "11/11/2026 12:53:00")
+            if (/^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(strVal)) {
+                return strVal;
+            }
+
+            // 2. Se o Apps Script enviou em formato ISO UTC (ex: "2026-11-11T20:53:00.000Z" por fuso GMT-08 da planilha)
+            if (strVal.includes('T') && strVal.endsWith('Z')) {
+                let d = new Date(strVal);
+                if (!isNaN(d.getTime())) {
+                    // Ajusta automaticamente para o fuso do Google Sheets (-08:00 -> 20:53 - 8h = 12:53)
+                    let adjusted = new Date(d.getTime() - (8 * 3600 * 1000));
+                    let day = String(adjusted.getUTCDate()).padStart(2, '0');
+                    let month = String(adjusted.getUTCMonth() + 1).padStart(2, '0');
+                    let year = adjusted.getUTCFullYear();
+                    let hours = String(adjusted.getUTCHours()).padStart(2, '0');
+                    let minutes = String(adjusted.getUTCMinutes()).padStart(2, '0');
+                    let seconds = String(adjusted.getUTCSeconds()).padStart(2, '0');
+                    return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
+                }
+            }
+
+            // 3. Se vier formato ISO sem Z (texto direto YYYY-MM-DD HH:MM:SS)
+            let isoMatch = strVal.match(/^(\d{4})[-/](\d{2})[-/](\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
+            if (isoMatch) {
+                let [, y, m, d, hh, mm, ss] = isoMatch;
+                return `${d}/${m}/${y} ${hh}:${mm}:${ss || '00'}`;
+            }
+
+            // 4. Se vier número serial do Excel (.xlsx local)
             if (!isNaN(val) && typeof val === 'number') {
                 const totalSeconds = Math.round((val - 25569) * 86400);
                 const d = new Date(totalSeconds * 1000);
@@ -530,20 +558,6 @@
                 const minutes = String(d.getUTCMinutes()).padStart(2, '0');
                 const seconds = String(d.getUTCSeconds()).padStart(2, '0');
                 return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
-            }
-
-            // Procura padrão de Data ISO (Ex: 2026-11-11T12:53:00.000Z ou 2026-11-11 12:53:00)
-            let isoMatch = strVal.match(/^(\d{4})[-/](\d{2})[-/](\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
-            if (isoMatch) {
-                let [, y, m, d, hh, mm, ss] = isoMatch;
-                return `${d}/${m}/${y} ${hh}:${mm}:${ss || '00'}`;
-            }
-
-            // Procura padrão Brasileiro (Ex: 11/11/2026 12:53:00)
-            let brMatch = strVal.match(/^(\d{2})[/.-](\d{2})[/.-](\d{4})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
-            if (brMatch) {
-                let [, d, m, y, hh, mm, ss] = brMatch;
-                return `${d}/${m}/${y} ${hh}:${mm}:${ss || '00'}`;
             }
 
             return strVal;
@@ -669,7 +683,7 @@
 
             const tbody = document.getElementById('dataTableBody');
             if (tbody) {
-                tbody.innerHTML = '<tr><td colspan="16" class="p-6 text-center text-gray-500">Selecione o Ponto de Partida e a Equipe/Região para iniciar.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="16" class="p-6 text-center text-gray-500">Selecione o Ponto de Partida e a Equipe acima para iniciar.</td></tr>';
             }
 
             document.getElementById('statTotal').innerText = '0';
@@ -691,7 +705,9 @@
             clearBrowserRamCache();
             showSplashAgain('A descarregar dados atualizados da nuvem...');
             try {
-                const response = await fetch(APPS_SCRIPT_URL);
+                // Adiciona parâmetro anti-cache na URL para forçar leitura fresca do Drive
+                const cacheBusterUrl = `${APPS_SCRIPT_URL}?t=${new Date().getTime()}`;
+                const response = await fetch(cacheBusterUrl);
                 if (!response.ok) throw new Error('Falha no Apps Script.');
                 let jsonRes = await response.json();
 
@@ -730,11 +746,11 @@
                 const workbook = XLSX.read(data, {type: 'array'});
                 
                 let tdcSheetName = workbook.SheetNames.find(name => name.toLowerCase() === 'tdc') || workbook.SheetNames[0];
-                rawData = XLSX.utils.sheet_to_json(workbook.Sheets[tdcSheetName]);
+                rawData = XLSX.utils.sheet_to_json(workbook.Sheets[tdcSheetName], { raw: false });
 
                 let execSheetName = workbook.SheetNames.find(name => name.toLowerCase().includes('executado'));
                 if (execSheetName) {
-                    rawExecutadoData = XLSX.utils.sheet_to_json(workbook.Sheets[execSheetName]);
+                    rawExecutadoData = XLSX.utils.sheet_to_json(workbook.Sheets[execSheetName], { raw: false });
                 } else {
                     rawExecutadoData = [];
                 }
@@ -969,7 +985,7 @@
                     let matchesRegion = selectedFilterVal ? (regRow.toUpperCase() === selectedFilterVal.toUpperCase()) : true;
                     let remRow = String(row['Tipo Remessa WIN'] || '').trim();
                     let matchesRemessa = checkedRemessas.includes(remRow);
-                    let hasCoords = row['Latitude'] && row['Longitude'] && !isNaN(row['Latitude']) && !isNaN(row['Longitude']);
+                    let hasCoords = row['Latitude'] && row['Longitude'] && !isNaN(parseFloat(String(row['Latitude']).replace(',', '.'))) && !isNaN(parseFloat(String(row['Longitude']).replace(',', '.')));
                     return isTargetState && matchesRegion && matchesRemessa && hasCoords;
                 });
 
@@ -989,7 +1005,7 @@
                 let estado = String(row['Estado TdC'] || '').trim();
                 let matchesTeam = (team.toUpperCase() === selectedFilterVal.toUpperCase());
                 let matchesState = validStates.some(st => estado.toLowerCase().includes(st.toLowerCase()));
-                let hasCoords = row['Latitude'] && row['Longitude'] && !isNaN(row['Latitude']) && !isNaN(row['Longitude']);
+                let hasCoords = row['Latitude'] && row['Longitude'] && !isNaN(parseFloat(String(row['Latitude']).replace(',', '.'))) && !isNaN(parseFloat(String(row['Longitude']).replace(',', '.')));
                 return matchesTeam && matchesState && hasCoords;
             });
 
@@ -1018,7 +1034,9 @@
                     let isCritical = isCriticalSlaRemessa(item['Tipo Remessa WIN']);
                     
                     if (ansDate && isCritical) {
-                        let dDirect = calculateDistance(currLat, currLon, parseFloat(item['Latitude']), parseFloat(item['Longitude']));
+                        let lat = parseFloat(String(item['Latitude']).replace(',', '.'));
+                        let lon = parseFloat(String(item['Longitude']).replace(',', '.'));
+                        let dDirect = calculateDistance(currLat, currLon, lat, lon);
                         let travelDirectMin = calculateTravelTimeMinutes(dDirect);
                         let execMin = parseFloat(item['tempo'] || item['Tempo'] || 20);
                         
@@ -1041,7 +1059,9 @@
                 } else {
                     let minDistance = Infinity;
                     unvisited.forEach((item, idx) => {
-                        let d = calculateDistance(currLat, currLon, parseFloat(item['Latitude']), parseFloat(item['Longitude']));
+                        let lat = parseFloat(String(item['Latitude']).replace(',', '.'));
+                        let lon = parseFloat(String(item['Longitude']).replace(',', '.'));
+                        let d = calculateDistance(currLat, currLon, lat, lon);
                         if (d < minDistance) {
                             minDistance = d;
                             nextIdx = idx;
@@ -1050,7 +1070,9 @@
                 }
 
                 let nextItem = unvisited.splice(nextIdx, 1)[0];
-                let distToNext = calculateDistance(currLat, currLon, parseFloat(nextItem['Latitude']), parseFloat(nextItem['Longitude']));
+                let nLat = parseFloat(String(nextItem['Latitude']).replace(',', '.'));
+                let nLon = parseFloat(String(nextItem['Longitude']).replace(',', '.'));
+                let distToNext = calculateDistance(currLat, currLon, nLat, nLon);
                 totalDistance += distToNext;
 
                 let travelMin = calculateTravelTimeMinutes(distToNext);
@@ -1063,8 +1085,8 @@
                 nextItem._calcStart = new Date(startTime);
                 nextItem._calcEnd = new Date(endTime);
 
-                currLat = parseFloat(nextItem['Latitude']);
-                currLon = parseFloat(nextItem['Longitude']);
+                currLat = nLat;
+                currLon = nLon;
                 currentTime = new Date(endTime);
                 routed.push(nextItem);
             }
@@ -1094,8 +1116,8 @@
 
             routedData.forEach((row, index) => {
                 let seq = index + 1;
-                let lat = parseFloat(row['Latitude']);
-                let lon = parseFloat(row['Longitude']);
+                let lat = parseFloat(String(row['Latitude']).replace(',', '.'));
+                let lon = parseFloat(String(row['Longitude']).replace(',', '.'));
                 bounds.push([lat, lon]);
                 routeCoordinates.push([lat, lon]);
 
@@ -1140,8 +1162,8 @@
             let bounds = [];
             dataList.forEach((row, index) => {
                 let seq = index + 1;
-                let lat = parseFloat(row['Latitude']);
-                let lon = parseFloat(row['Longitude']);
+                let lat = parseFloat(String(row['Latitude']).replace(',', '.'));
+                let lon = parseFloat(String(row['Longitude']).replace(',', '.'));
                 bounds.push([lat, lon]);
                 renderRowAndMarker(row, seq, lat, lon, tbody, '#10b981', false, false);
             });
@@ -1516,8 +1538,8 @@
 
             plannedServices.forEach(serv => {
                 if (serv['Latitude'] && serv['Longitude']) {
-                    let sLat = parseFloat(serv['Latitude']);
-                    let sLon = parseFloat(serv['Longitude']);
+                    let sLat = parseFloat(String(serv['Latitude']).replace(',', '.'));
+                    let sLon = parseFloat(String(serv['Longitude']).replace(',', '.'));
                     let reached = routeData.some(p => {
                         let pLat = p.lat || p.latitude;
                         let pLon = p.lng || p.longitude || p.lon;
